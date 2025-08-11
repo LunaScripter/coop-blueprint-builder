@@ -394,29 +394,17 @@ io.on("connection",(socket)=>{
   socket.on("disconnect",()=>{
     if(!joined) return;
     const r = rooms[joined]; if(!r) return;
-    const leftId = socket.id;
-
-    r.players.delete(leftId);
-    r.spectators.delete(leftId);
-    r.ready.delete(leftId);
-
-    if(r.hostId===leftId){
+    r.players.delete(socket.id);
+    r.spectators.delete(socket.id);
+    r.ready.delete(socket.id);
+    if(r.hostId===socket.id){
       // transfer host if possible
       r.hostId = Array.from(r.players)[0] || null;
     }
-
-    // Let clients know someone left (client shows a clean notice)
-    if(r.phase!=="lobby"){
-      io.to(r.code).emit("opponentLeft",{ id:leftId });
-    }
-
-    // If a competitive round is live and we drop below 2 players,
-    // end the entire match cleanly (no auto-advance, no "you win" popup)
+    // if competitive and <2 players during match, end round early
     if(r.phase!=="lobby" && r.matchType==="competitive" && r.players.size<2){
-      r.roundNum = r.totalRounds; // force finishRound to go to summary -> lobby
       finishRound(r);
     }
-
     broadcastLobby(r);
   });
 });

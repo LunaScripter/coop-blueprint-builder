@@ -100,9 +100,7 @@ function updateModeRadios(){
     r.disabled = (selfId!==hostId);
     r.onchange = ()=>{ if(r.checked) socket.emit('setMatchType',{code, matchType:r.value}); };
   }
-  hostHint.textContent = (selfId===hostId)
-    ? `You are host. Mode: ${matchType === 'competitive' ? 'Competitive' : 'Team'}`
-    : `Waiting for host… Mode: ${matchType === 'competitive' ? 'Competitive' : 'Team'}`;
+  hostHint.textContent = (selfId===hostId) ? "You are host." : "Waiting for host…";
 }
 readyBtn.onclick = ()=>{
   const on = readyBtn.dataset.ready!=="true";
@@ -172,27 +170,16 @@ function draw(){
 }
 function drawPreviewCanvas(){
   if(!blueprint) return;
-  // EXACT 1:1 with the live board so players don’t mentally rescale
-  const px = cell || Math.floor(Math.min(880/gridW, 720/gridH, 40));
-  previewCanvas.width = gridW * px;
-  previewCanvas.height = gridH * px;
-
+  const maxW=720, maxH=520, px=Math.floor(Math.min(maxW/gridW, maxH/gridH, 24));
+  previewCanvas.width=gridW*px; previewCanvas.height=gridH*px;
   pctx.clearRect(0,0,previewCanvas.width,previewCanvas.height);
-
-  // background
   for(let y=0;y<gridH;y++) for(let x=0;x<gridW;x++){
     pctx.fillStyle="#0b0f1d"; pctx.fillRect(x*px,y*px,px,px);
-  }
-  // tinted blueprint preview
-  for(let y=0;y<gridH;y++) for(let x=0;x<gridW;x++){
     const t=blueprint[y][x]; if(t===TILES.EMPTY) continue;
-    pctx.globalAlpha=.26;
     pctx.fillStyle=(t===TILES.WALL?COLORS.wall:t===TILES.WINDOW?COLORS.window:t===TILES.DOOR?COLORS.door:COLORS.roof);
-    pctx.fillRect(x*px+2,y*px+2,px-4,px-4);
-    pctx.globalAlpha=1;
+    pctx.globalAlpha=.26; pctx.fillRect(x*px+2,y*px+2,px-4,px-4); pctx.globalAlpha=1;
   }
-  // gridlines identical to the live board
-  pctx.strokeStyle=COLORS.grid;
+  pctx.strokeStyle="#1a203a";
   for(let x=0;x<=gridW;x++){ pctx.beginPath(); pctx.moveTo(x*px,0); pctx.lineTo(x*px,gridH*px); pctx.stroke(); }
   for(let y=0;y<=gridH;y++){ pctx.beginPath(); pctx.moveTo(0,y*px); pctx.lineTo(gridW*px,y*px); pctx.stroke(); }
 }
@@ -230,10 +217,6 @@ socket.on('lobby',(st)=>{
   showCenter(lobbyOverlay);
   hideCenter(welcomeOverlay);
   setBoardVisible(false);
-
-  // ensure no lingering overlays when we bounce back
-  hidePhaseOverlay();
-  hideModal();
 });
 
 socket.on('roundSetup',({gridW:W,gridH:H,blueprint:bp,board:b,matchType:mt,roundNum:rn,totalRounds:tr,peeksRemaining:pr})=>{
@@ -283,12 +266,6 @@ socket.on('gridUpdate',({owner,x,y,tile})=>{
 
 socket.on('playerFinished',({id,rank})=>{
   if(id===selfId){ showPhaseOverlay(`Finished!`,`Place: ${rank}`, false); setTimeout(()=> hidePhaseOverlay(),1200); }
-});
-
-// NEW: tell the client cleanly when someone bails mid-round
-socket.on('opponentLeft',({id})=>{
-  showPhaseOverlay("Opponent left","Round ended", false);
-  setBoardVisible(false);
 });
 
 socket.on('roundResults',({roundNum:rn,entries})=>{
