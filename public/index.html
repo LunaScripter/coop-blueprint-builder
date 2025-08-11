@@ -8,7 +8,6 @@
 </head>
 <body>
   <div id="app">
-    <!-- Left panel only for create/join; hidden once you’re in the lobby/game -->
     <aside id="left">
       <h1>Co-op Builder</h1>
       <div id="sessionCard" class="card">
@@ -28,16 +27,16 @@
     </aside>
 
     <main>
-      <!-- Top HUD: round + timer -->
+      <!-- Top HUD: only in Build -->
       <div id="topHUD" class="hud-top hidden">
         <div id="roundLabel">Round —</div>
         <div id="timerLabel">—s</div>
       </div>
 
-      <!-- The board -->
-      <canvas id="grid" width="880" height="720"></canvas>
+      <!-- Game board (hidden until Build) -->
+      <canvas id="grid" class="board hidden" width="880" height="720"></canvas>
 
-      <!-- Bottom bar: palette + action button(s) -->
+      <!-- Bottom bar (only in Build) -->
       <div id="bottomBar" class="hud-bottom hidden">
         <div id="paletteBar" class="palette-bar"></div>
         <div id="actionsBar" class="actions-bar">
@@ -46,7 +45,7 @@
         </div>
       </div>
 
-      <!-- Centered Lobby Overlay (Ready/Start, host picks mode) -->
+      <!-- Centered Lobby Overlay -->
       <div id="lobbyOverlay" class="center-overlay hidden">
         <div class="panel large">
           <h2>Room <span id="roomLabelBig">—</span></h2>
@@ -63,10 +62,11 @@
         </div>
       </div>
 
-      <!-- Phase overlay: Countdown / Blueprint / Build! -->
+      <!-- Phase overlay: Countdown / Blueprint (now includes preview canvas) / Build! -->
       <div id="phaseOverlay" class="overlay hidden">
         <div id="overlayText">Blueprint</div>
         <div id="overlaySub"></div>
+        <canvas id="previewCanvas" width="1" height="1" class="hidden"></canvas>
       </div>
 
       <!-- Results modal -->
