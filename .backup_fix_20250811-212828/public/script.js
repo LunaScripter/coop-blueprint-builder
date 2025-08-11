@@ -38,6 +38,10 @@ const hostHint = document.getElementById('hostHint');
 const modeRadios = document.getElementsByName('mtype');
 const modeLabel = document.getElementById('modeLabel');
 
+const createBtn = document.getElementById('createBtn');
+const joinBtn = document.getElementById('joinBtn');
+const codeInput = document.getElementById('codeInput');
+
 const phaseOverlay = document.getElementById('phaseOverlay');
 const overlayText = document.getElementById('overlayText');
 const overlaySub = document.getElementById('overlaySub');
@@ -64,14 +68,13 @@ function setBoardVisible(on){
 }
 function showCenter(el){ el.classList.remove('hidden'); }
 function hideCenter(el){ el.classList.add('hidden'); }
-
 function showPhaseOverlay(main, sub, withPreview=false){
   overlayText.textContent = main;
   overlaySub.textContent = sub||"";
   overlayText.classList.remove('overlay-pill');
   overlaySub.classList.remove('overlay-pill-sub');
-  overlayText.style.left=overlayText.style.top=""; overlayText.style.transform="";
-  overlaySub.style.left=overlaySub.style.top=""; overlaySub.style.transform="";
+  overlayText.style.left=overlayText.style.top="";
+  overlaySub.style.left=overlaySub.style.top="";
   previewCanvas.classList.toggle('hidden', !withPreview);
   phaseOverlay.classList.remove('hidden');
 }
@@ -96,20 +99,17 @@ function positionPreviewCanvas(){
 }
 
 function positionBanner(){
-  // Anchor to board top-center using CSS pixels (no offsetWidth math needed)
-  const boardRect = cvs.getBoundingClientRect();
+  // Place "BLUEPRINT!" banner just ABOVE the board, centered
   const overlayRect = phaseOverlay.getBoundingClientRect();
-  const cx = boardRect.left + boardRect.width/2 - overlayRect.left;
-  let top = boardRect.top - overlayRect.top - 12;
-  if(top < 8) top = 8;
-
-  overlayText.style.left = `${Math.round(cx)}px`;
-  overlayText.style.top  = `${Math.round(top)}px`;
-  overlayText.style.transform = "translate(-50%, -100%)";
-
-  overlaySub.style.left = `${Math.round(cx)}px`;
-  overlaySub.style.top  = `${Math.round(top + 6)}px`;
-  overlaySub.style.transform = "translate(-50%, 0)";
+  const boardRect   = cvs.getBoundingClientRect();
+  const left = (boardRect.left - overlayRect.left) + (cvs.width/2) - (overlayText.offsetWidth/2);
+  let top  = (boardRect.top - overlayRect.top) - (overlayText.offsetHeight + 12);
+  if(top < 8) top = 8; // clamp inside
+  overlayText.style.left = Math.round(left) + "px";
+  overlayText.style.top  = Math.round(top)  + "px";
+  // optional subline under the banner
+  overlaySub.style.left = Math.round((boardRect.left - overlayRect.left) + (cvs.width/2) - (overlaySub.offsetWidth/2)) + "px";
+  overlaySub.style.top  = Math.round(top + overlayText.offsetHeight + 6) + "px";
 }
 
 function draw(){
@@ -146,7 +146,9 @@ function drawPreviewCanvas(){
   previewCanvas.height = gridH * px;
   previewCanvas.style.width  = previewCanvas.width + "px";
   previewCanvas.style.height = previewCanvas.height + "px";
+
   pctx.clearRect(0,0,previewCanvas.width,previewCanvas.height);
+
   for(let y=0;y<gridH;y++) for(let x=0;x<gridW;x++){
     pctx.fillStyle="#0b0f1d"; pctx.fillRect(x*px,y*px,px,px);
   }
@@ -204,17 +206,16 @@ readyBtn.onclick = ()=>{
 };
 startBtn.onclick = ()=> socket.emit('startMatch',{code});
 
-// --- Submit toggle (locks edits while submitted) ---
+// --- Actions ---
 submitBtn.onclick = ()=>{
   if(!code || phase!=="build") return;
   const next = !mySubmitted;
   socket.emit('submitToggle',{code, submit:next});
 };
 
-// --- Peek ---
 peekBtn.onclick = ()=> socket.emit('peek',{code});
 
-// --- Palette ---
+// Palette
 function buildPalette(){
   paletteBar.innerHTML = "";
   [TILES.EMPTY,TILES.WALL,TILES.WINDOW,TILES.DOOR,TILES.ROOF].forEach(t=>{
@@ -229,26 +230,15 @@ window.addEventListener('keydown',(e)=>{
   if(map[e.key]!=null){ currentTile=map[e.key]; }
 });
 
-// --- Canvas interactions (block when submitted) ---
-cvs.addEventListener('contextmenu',e=>e.preventDefault());
-cvs.addEventListener('mousedown',(e)=>{
-  if(!code || spectator) return;
-  if(phase!=="build") return;
-  if(mySubmitted) return; // lock while submitted
-  const r=cvs.getBoundingClientRect();
-  const x=Math.floor((e.clientX-r.left)/cell), y=Math.floor((e.clientY-r.top)/cell);
-  if(x<0||y<0||x>=gridW||y>=gridH) return;
-  const tile=(e.button===2)? TILES.EMPTY : currentTile;
-  socket.emit('placeTile',{code,x,y,tile});
-});
-
-// --- Submit UI + timer ---
 function updateSubmitUI(){
+  // Button label + lock visuals
   submitBtn.textContent = mySubmitted ? "Unsubmit" : "Submit";
   bottomBar.style.opacity = mySubmitted ? ".7" : "1";
+  // Counter chip
   submitStatus.textContent = (phase==="build") ? `Submitted: ${submittedCount}/${submittedTotal||"?"}` : "";
 }
 
+// --- Timers ---
 let timerInt=null;
 function startTimer(){
   if(timerInt) clearInterval(timerInt);
@@ -280,6 +270,7 @@ socket.on('lobby',(st)=>{
   showCenter(lobbyOverlay); hideCenter(welcomeOverlay);
   setBoardVisible(false); hidePhaseOverlay(); hideModal();
 
+  // reset submitted totals in lobby
   submittedTotal = st.players.length;
   submittedCount = 0; mySubmitted=false; updateSubmitUI();
 });
@@ -291,7 +282,7 @@ socket.on('modeUpdate',({matchType:mt})=>{
 socket.on('roundSetup',({gridW:W,gridH:H,blueprint:bp,board:b,matchType:mt,roundNum:rn,totalRounds:tr,peeksRemaining:pr})=>{
   matchType=mt; gridW=W; gridH=H; blueprint=bp; board=b; roundNum=rn; totalRounds=tr;
   peeksRemaining=pr||0; peekLeft.textContent=`x${peeksRemaining}`;
-  mySubmitted=false; submittedCount=0;
+  mySubmitted=false; submittedCount=0; // totals will be sent on first submitState
   submitBtn.classList.toggle('hidden', matchType!=="competitive");
   peekBtn.classList.toggle('hidden', matchType!=="team");
   buildPalette();
@@ -320,13 +311,14 @@ socket.on('phase',(ph)=>{
     overlayText.classList.add('overlay-pill');
     overlaySub.classList.add('overlay-pill-sub');
     drawPreviewCanvas(); positionPreviewCanvas();
-    requestAnimationFrame(positionBanner);
+    // wait a frame so widths are known, then place banner
+    requestAnimationFrame(()=> positionBanner());
   } else if(phase==="build"){
     resizeCanvas();
     hidePhaseOverlay(); setBoardVisible(true);
     bottomBar.classList.remove('hidden'); topHUD.classList.remove('hidden');
     showPhaseOverlay("Build!","", false);
-    setTimeout(()=> hidePhaseOverlay(), 400);
+    setTimeout(()=> hidePhaseOverlay(), 700);
   }
   startTimer();
 });
@@ -334,8 +326,11 @@ socket.on('phase',(ph)=>{
 window.addEventListener('resize', ()=>{
   if(!gridW || !gridH) return;
   if(phase==="preview"){
-    resizeCanvas(); drawPreviewCanvas(); positionPreviewCanvas(); requestAnimationFrame(positionBanner);
-  } else { resizeCanvas(); }
+    resizeCanvas(); drawPreviewCanvas(); positionPreviewCanvas();
+    requestAnimationFrame(()=> positionBanner());
+  } else {
+    resizeCanvas();
+  }
 });
 
 socket.on('peekWindow',({until,peeksRemaining:pr})=>{
@@ -350,7 +345,7 @@ socket.on('gridUpdate',({owner,x,y,tile})=>{
 });
 
 socket.on('playerFinished',({id,rank})=>{
-  if(id===selfId){ showPhaseOverlay(`Finished!`,`Place: ${rank}`, false); setTimeout(()=> hidePhaseOverlay(),1000); }
+  if(id===selfId){ showPhaseOverlay(`Finished!`,`Place: ${rank}`, false); setTimeout(()=> hidePhaseOverlay(),1200); }
 });
 
 socket.on('opponentLeft',()=>{
@@ -358,7 +353,7 @@ socket.on('opponentLeft',()=>{
   setBoardVisible(false);
 });
 
-// submit states + instant next (client-side UI only; server drives advance)
+/** NEW: server broadcasts submit state changes */
 socket.on('submitState',({id, submitted, count, total})=>{
   if(total!=null) submittedTotal = total;
   if(count!=null) submittedCount = count;
@@ -366,21 +361,26 @@ socket.on('submitState',({id, submitted, count, total})=>{
   updateSubmitUI();
 });
 
-// Fast results: skip modal if server flags fast=true
-socket.on('roundResults',({roundNum:rn,entries,fast})=>{
-  if(!fast){
-    scoreList.innerHTML="";
-    resultTitle.textContent=`Round ${rn} Results`;
-    entries.forEach((e,i)=>{
+socket.on('roundResults',({roundNum:rn,entries})=>{
+  scoreList.innerHTML="";
+  resultTitle.textContent=`Round ${rn} Results`;
+  if(matchType==="competitive"){
+    entries.forEach(e=>{
       const me=(e.id===selfId)?" (You)":"";
-      const rank = e.rank ? `#${e.rank}` : `#${i+1}`;
+      const rank=e.rank?`#${e.rank}`:"-";
       const li=document.createElement('li');
-      li.innerHTML=`<span>${rank} ${e.id.slice(0,5)}${me}</span><span>${e.total!=null? e.total+' pts' : (e.accuracy? e.accuracy+'%':'' )}</span>`;
+      li.innerHTML=`<span>${rank} ${e.id.slice(0,5)}${me}</span><span>${e.accuracy}% · +${e.pts} pts</span>`;
       scoreList.appendChild(li);
     });
-    showModal();
+  }else{
+    const e=entries[0];
+    const li=document.createElement('li');
+    li.innerHTML=`<span>Team</span><span>${e.accuracy}% · ${e.pts} pts</span>`;
+    scoreList.appendChild(li);
   }
+  showModal();
 });
+closeScore.onclick=()=> hideModal();
 
 socket.on('matchSummary',({entries})=>{
   scoreList.innerHTML="";
@@ -396,7 +396,11 @@ socket.on('matchSummary',({entries})=>{
 
 // --- Init ---
 function init(){
-  hideModal(); showCenter(welcomeOverlay); hideCenter(lobbyOverlay);
-  setBoardVisible(false); draw(); updateSubmitUI();
+  hideModal();
+  showCenter(welcomeOverlay);
+  hideCenter(lobbyOverlay);
+  setBoardVisible(false);
+  draw();
+  updateSubmitUI();
 }
 init();

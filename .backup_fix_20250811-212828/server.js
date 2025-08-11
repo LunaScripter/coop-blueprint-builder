@@ -96,7 +96,7 @@ function newRoom(){
     submits: {},
     lastSubmit: {},
 
-    submitted: new Set(),
+    submitted: new Set(), // NEW: players who pressed Submit
 
     teamBoard: null,
     peekUntil: 0,
@@ -121,9 +121,15 @@ function canStart(r){
 
 function broadcastLobby(r){
   io.to(r.code).emit("lobby", {
-    code: r.code, hostId: r.hostId, matchType: r.matchType,
-    players: Array.from(r.players), readyCount: r.ready.size,
-    canStart: canStart(r), phase: r.phase, roundNum: r.roundNum, totalRounds: r.totalRounds
+    code: r.code,
+    hostId: r.hostId,
+    matchType: r.matchType,
+    players: Array.from(r.players),
+    readyCount: r.ready.size,
+    canStart: canStart(r),
+    phase: r.phase,
+    roundNum: r.roundNum,
+    totalRounds: r.totalRounds
   });
 }
 
@@ -185,14 +191,14 @@ function beginBuild(r){
   const sec = (r.matchType==="competitive" ? (COMP_ROUNDS[r.roundNum-1]?.buildSec || 90) : TEAM_ROUND.buildSec);
   r.buildEndsAt = Date.now() + sec*1000;
   io.to(r.code).emit("phase", { phase:r.phase, roundNum:r.roundNum, totalRounds:r.totalRounds, buildEndsAt:r.buildEndsAt, matchType:r.matchType, peeksRemaining:r.peeksRemaining||0 });
+  // send initial submit counters
   io.to(r.code).emit("submitState",{ count:r.submitted.size, total:r.players.size });
-  r.timers.build = setTimeout(()=> finishRound(r, {fast:false}), sec*1000);
+  r.timers.build = setTimeout(()=> finishRound(r), sec*1000);
 }
-
-function finishRound(r, {fast} = {fast:false}){
+function finishRound(r){
   clearTimers(r);
   r.phase = "review";
-  const results = { roundNum:r.roundNum, entries:[], fast: !!fast };
+  const results = { roundNum:r.roundNum, entries:[] };
 
   if(r.matchType==="competitive"){
     const ranks = {};
@@ -226,8 +232,8 @@ function finishRound(r, {fast} = {fast:false}){
   io.to(r.code).emit("roundResults", results);
 
   if(r.roundNum < r.totalRounds){
-    if(fast){
-      // immediate next: no results delay, no 3s countdown
+    r.phase = "results";
+    r.timers.results = setTimeout(()=>{
       setupRound(r);
       for(const id of r.players){
         const sock = io.sockets.sockets.get(id);
@@ -238,24 +244,8 @@ function finishRound(r, {fast} = {fast:false}){
           sock.emit("roundSetup", { gridW:r.gridW, gridH:r.gridH, blueprint:r.blueprint, board:r.teamBoard, matchType:r.matchType, roundNum:r.roundNum, totalRounds:r.totalRounds, peeksRemaining:r.peeksRemaining });
         }
       }
-      beginPreview(r);
-    } else {
-      // normal flow: brief results pause then next with countdown
-      r.phase = "results";
-      r.timers.results = setTimeout(()=>{
-        setupRound(r);
-        for(const id of r.players){
-          const sock = io.sockets.sockets.get(id);
-          if(!sock) continue;
-          if(r.matchType==="competitive"){
-            sock.emit("roundSetup", { gridW:r.gridW, gridH:r.gridH, blueprint:r.blueprint, board:r.boardsByPlayer[id], matchType:r.matchType, roundNum:r.roundNum, totalRounds:r.totalRounds });
-          } else {
-            sock.emit("roundSetup", { gridW:r.gridW, gridH:r.gridH, blueprint:r.blueprint, board:r.teamBoard, matchType:r.matchType, roundNum:r.roundNum, totalRounds:r.totalRounds, peeksRemaining:r.peeksRemaining });
-          }
-        }
-        beginCountdown(r);
-      }, 1200); // shorter pause
-    }
+      beginCountdown(r);
+    }, 5500);
   } else {
     const summary = [];
     for(const id of r.players){ summary.push({ id, total:r.points[id]||0 }); }
@@ -351,7 +341,7 @@ io.on("connection",(socket)=>{
     const key = `last:${socket.id}`;
     const now = Date.now();
     socket.data[key] = socket.data[key]||0;
-    if(now - socket.data[key] < 100) return;
+    if(now - socket.data[key] < 120) return;
     socket.data[key] = now;
 
     if(r.matchType==="competitive"){
@@ -367,7 +357,7 @@ io.on("connection",(socket)=>{
         r.finished.push({ id:socket.id, rank, finishedAt:Date.now() });
         io.to(r.code).emit("playerFinished",{ id:socket.id, rank });
         if(r.finished.length === r.players.size){
-          finishRound(r, {fast:false});
+          finishRound(r);
         }
       }
     } else {
@@ -377,19 +367,46 @@ io.on("connection",(socket)=>{
     }
   });
 
-  // Submit ⇄ Unsubmit; end immediately when all submitted (competitive only)
+  // NEW: Submit ⇄ Unsubmit toggle. When everyone is submitted, end early.
   socket.on("submitToggle",({code, submit})=>{
     const r = rooms[code]; if(!r) return;
     if(r.phase!=="build") return;
     if(!r.players.has(socket.id)) return;
-    if(r.matchType!=="competitive") return;
 
-    if(submit){ r.submitted.add(socket.id); } else { r.submitted.delete(socket.id); }
+    if(submit){
+      r.submitted.add(socket.id);
+    }else{
+      r.submitted.delete(socket.id);
+    }
 
     io.to(r.code).emit("submitState",{ id:socket.id, submitted:!!submit, count:r.submitted.size, total:r.players.size });
 
     if(r.submitted.size === r.players.size && r.players.size >= 2){
-      finishRound(r, {fast:true}); // immediate next
+      // everyone locked in, finish now
+      finishRound(r);
+    }
+  });
+
+  // (Optional legacy submit check; kept for compatibility, not used by new UI)
+  socket.on("submit",({code})=>{
+    const r = rooms[code]; if(!r) return;
+    if(r.matchType!=="competitive") return;
+    if(r.phase!=="build") return;
+    if(!r.players.has(socket.id)) return;
+
+    const now = Date.now();
+    const last = r.lastSubmit[socket.id]||0;
+    if(now - last < 1000) return;
+    r.lastSubmit[socket.id] = now;
+    r.submits[socket.id] = (r.submits[socket.id]||0)+1;
+
+    if(!r.finished.find(f=>f.id===socket.id) && boardsEqual(r.boardsByPlayer[socket.id], r.blueprint)){
+      const rank = r.finished.length + 1;
+      r.finished.push({ id:socket.id, rank, finishedAt:Date.now() });
+      io.to(r.code).emit("playerFinished",{ id:socket.id, rank });
+      if(r.finished.length === r.players.size){
+        finishRound(r);
+      }
     }
   });
 
@@ -410,9 +427,10 @@ io.on("connection",(socket)=>{
     if(r.phase!=="lobby"){
       io.to(r.code).emit("opponentLeft",{ id:leftId });
       if(r.players.size < 2){
-        setTimeout(()=> abortMatch(r), 700);
+        setTimeout(()=> abortMatch(r), 900);
         return;
       } else {
+        // update submit counters after someone leaves mid-round
         io.to(r.code).emit("submitState",{ count:r.submitted.size, total:r.players.size });
       }
     }
