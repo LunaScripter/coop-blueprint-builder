@@ -9,20 +9,12 @@
 <body>
   <div id="app">
     <main>
-      <!-- Full-screen overlay ONLY for GET READY (never for blueprint/build) -->
-      <div id="phaseOverlay" class="big-overlay hidden">
-        <div class="center">
-          <div id="overlayText" class="big-title">GET READY</div>
-          <div id="overlaySub" class="big-sub">Starting…</div>
-        </div>
-      </div>
-
-      <!-- Board wrapper keeps everything aligned -->
+      <!-- Board wrapper keeps everything aligned and predictable -->
       <div id="boardWrap" class="hidden">
         <canvas id="grid" width="880" height="720"></canvas>
         <canvas id="previewCanvas" width="1" height="1" class="hidden"></canvas>
 
-        <!-- Small, non-blocking pills INSIDE the board (for preview only) -->
+        <!-- Small, non-blocking pills INSIDE the board (no overlays) -->
         <div id="bpLabel" class="pill hidden">BLUEPRINT!</div>
         <div id="bpTimer" class="pill hidden"></div>
       </div>

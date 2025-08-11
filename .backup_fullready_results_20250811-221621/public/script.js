@@ -20,10 +20,6 @@ let mySubmitted=false, submittedCount=0, submittedTotal=0;
 let currentTile=TILES.WALL;
 
 // --- Elements ---
-const phaseOverlay = document.getElementById('phaseOverlay');
-const overlayText = document.getElementById('overlayText');
-const overlaySub = document.getElementById('overlaySub');
-
 const boardWrap = document.getElementById('boardWrap');
 const cvs = document.getElementById('grid'); const ctx = cvs.getContext('2d');
 const previewCanvas = document.getElementById('previewCanvas'); const pctx = previewCanvas.getContext('2d');
@@ -65,15 +61,6 @@ const computeCell = (w,h)=> Math.floor(Math.min(880/w, 720/h, 40));
 function setHidden(el, hidden){ el.classList.toggle('hidden', !!hidden); }
 function show(el){ setHidden(el, false); } function hide(el){ setHidden(el, true); }
 
-function showFullOverlay(title, sub=""){
-  overlayText.textContent = title;
-  overlaySub.textContent = sub;
-  phaseOverlay.classList.add('show'); phaseOverlay.classList.remove('hidden');
-}
-function hideFullOverlay(){
-  phaseOverlay.classList.remove('show'); phaseOverlay.classList.add('hidden');
-}
-
 function setBoardVisible(on){
   setHidden(boardWrap, !on);
   setHidden(topHUD, !on);
@@ -111,7 +98,7 @@ function drawBoard(){
   }
   for(let y=0;y<gridH;y++) for(let x=0;x<gridW;x++){
     const t=board[y][x]; if(t===TILES.EMPTY) continue;
-    ctx.fillStyle=(t===TILES.WALL?COLORS.wall:t===TILES.WINDOW?COLORS.window:t===TILES.DOOR?COLORS.door:t===TILES.ROOF?COLORS.roof:COLORS.cell);
+    ctx.fillStyle=(t===TILES.WALL?COLORS.wall:t===TILES.WINDOW?COLORS.window:t===TILES.DOOR?COLORS.door:COLORS.roof);
     ctx.fillRect(x*cell+4,y*cell+4,cell-8,cell-8);
   }
   ctx.strokeStyle=COLORS.grid;
@@ -141,12 +128,12 @@ function drawPreview(){
 function enterCountdown(){
   phase = PHASE.COUNTDOWN;
   show(boardWrap); hide(bottomBar); hide(topHUD);
-  hide(previewCanvas); hide(bpLabel); hide(bpTimer);
-  showFullOverlay("GET READY","Starting…");
+  show(bpLabel); show(bpTimer);
+  bpLabel.textContent = "GET READY";
+  hide(previewCanvas); // no blueprint during countdown
 }
 function enterPreview(){
   phase = PHASE.PREVIEW;
-  hideFullOverlay();
   show(boardWrap); hide(bottomBar); hide(topHUD);
   show(previewCanvas); show(bpLabel); show(bpTimer);
   bpLabel.textContent = "BLUEPRINT!";
@@ -154,7 +141,6 @@ function enterPreview(){
 }
 function enterBuild(){
   phase = PHASE.BUILD;
-  hideFullOverlay();
   show(boardWrap); show(bottomBar); show(topHUD);
   hide(previewCanvas); hide(bpLabel); hide(bpTimer);
 }
@@ -168,8 +154,8 @@ function updateHUD(){
   const s = Math.max(0, Math.ceil(ms/1000));
   timerLabel.textContent = (phase===PHASE.BUILD) ? `${s}s` : "—s";
   roundLabel.textContent = (roundNum? `Round ${roundNum}/${totalRounds}` : "Round —");
-  if(phase===PHASE.COUNTDOWN) overlaySub.textContent = `Starting in ${s}s`;
-  if(phase===PHASE.PREVIEW)   bpTimer.textContent   = `Preview: ${s}s`;
+  if(phase===PHASE.COUNTDOWN) bpTimer.textContent = `Starting: ${s}s`;
+  if(phase===PHASE.PREVIEW)   bpTimer.textContent = `Preview: ${s}s`;
 }
 
 let hudInt = null;
@@ -212,9 +198,6 @@ submitBtn.onclick = ()=>{
 peekBtn.onclick = ()=> socket.emit('peek',{ code });
 
 // Lobby actions
-const createBtn = document.getElementById('createBtn');
-const joinBtn = document.getElementById('joinBtn');
-const codeInput = document.getElementById('codeInput');
 createBtn.onclick = ()=>{
   socket.emit('createRoom',(res)=>{
     if(!res.ok) return alert(res.error||'Failed');
@@ -282,7 +265,7 @@ socket.on('roundSetup',({gridW:W,gridH:H,blueprint:bp,board:b,matchType:mt,round
   peeksRemaining=pr||0; peekLeft.textContent=`x${peeksRemaining}`;
   mySubmitted=false; submittedCount=0;
 
-  // Submit visible in BOTH modes
+  // Submit button visible in BOTH modes now
   submitBtn.classList.remove('hidden');
   peekBtn.classList.toggle('hidden', matchType!=="team");
 
@@ -339,9 +322,11 @@ socket.on('submitState',({id, submitted, count, total})=>{
 
 socket.on('opponentLeft',({id})=>{
   alert("Opponent left. Match ended.");
+  // server moves to lobby
 });
 
 socket.on('roundResults',({roundNum:rn,entries})=>{
+  // Only sent on timer-end rounds (not all-submitted)
   scoreList.innerHTML="";
   resultTitle.textContent=`Round ${rn} Results`;
   entries.forEach((e,i)=>{
@@ -352,7 +337,6 @@ socket.on('roundResults',({roundNum:rn,entries})=>{
     li.innerHTML=`<span>${rank} ${e.id.slice(0,5)}${me}</span><span>${right}</span>`;
     scoreList.appendChild(li);
   });
-  // Always show results; server will move to Get Ready after a short delay
   show(scorePanel);
 });
 socket.on('matchSummary',({entries})=>{

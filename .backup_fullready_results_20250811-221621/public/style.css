@@ -8,14 +8,7 @@ body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,
 /* Main area */
 main{position:relative;flex:1;display:flex;align-items:center;justify-content:center;padding:18px}
 
-/* Full-screen phase overlay: used ONLY for GET READY */
-.big-overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.7);z-index:999}
-.big-overlay .center{text-align:center}
-.big-title{font-size:46px;font-weight:900;letter-spacing:.5px}
-.big-sub{margin-top:8px;font-size:16px;opacity:.95}
-.big-overlay.show{display:flex}
-
-/* Board wrapper & preview pills */
+/* Board wrapper owns sizing; pills sit inside */
 #boardWrap{position:relative;display:inline-block;border:1px solid #334;border-radius:12px;background:#0b0f1d}
 #grid{display:block;image-rendering:pixelated;border-radius:12px}
 #previewCanvas{position:absolute;inset:0;pointer-events:none}
@@ -36,7 +29,7 @@ button{background:#1e2747;cursor:pointer}
 button:hover{background:#26305c}
 button:disabled{opacity:.5;cursor:not-allowed}
 
-/* Center overlays (welcome/lobby) */
+/* Center overlays */
 .center-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)}
 .center-overlay .panel{background:var(--panel);border:1px solid var(--line);padding:16px 18px;border-radius:14px;text-align:center}
 .center-overlay .large{min-width:380px}
