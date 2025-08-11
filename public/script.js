@@ -212,9 +212,6 @@ submitBtn.onclick = ()=>{
 peekBtn.onclick = ()=> socket.emit('peek',{ code });
 
 // Lobby actions
-const createBtn = document.getElementById('createBtn');
-const joinBtn = document.getElementById('joinBtn');
-const codeInput = document.getElementById('codeInput');
 createBtn.onclick = ()=>{
   socket.emit('createRoom',(res)=>{
     if(!res.ok) return alert(res.error||'Failed');
