@@ -68,18 +68,3 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .btn-pulse { animation: btnPulse .35s ease; }
 .btn-ok    { outline: 2px solid #47d16a66; }
 .btn-warn  { outline: 2px solid #d1a14766; }
-
-/* Banner pills that sit ABOVE the board (no blocking) */
-.overlay-pill, .overlay-pill-sub {
-  position:absolute; z-index:60; pointer-events:none;
-  background:rgba(12,16,32,.94); border:1px solid var(--line);
-  border-radius:999px; box-shadow:0 2px 10px rgba(0,0,0,.25);
-}
-.overlay-pill     { padding:8px 14px; font-weight:800; }
-.overlay-pill-sub { padding:4px 10px; font-size:13px; opacity:.95; }
-
-/* Keep preview canvas under the text; never eat clicks */
-#previewCanvas { position:absolute; z-index:40; pointer-events:none }
-
-/* Tiny status chip in HUD */
-#submitStatus{font-weight:700; opacity:.9}
