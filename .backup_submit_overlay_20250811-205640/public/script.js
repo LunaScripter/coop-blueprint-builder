@@ -34,7 +34,7 @@ const startBtn = document.getElementById('startBtn');
 const readyBtn = document.getElementById('readyBtn');
 const hostHint = document.getElementById('hostHint');
 const modeRadios = document.getElementsByName('mtype');
-const modeLabel = document.getElementById('modeLabel'); // may not exist (older HTML is fine)
+const modeLabelEl = document.getElementById('modeLabel'); // may not exist in older HTML
 
 const createBtn = document.getElementById('createBtn');
 const joinBtn = document.getElementById('joinBtn');
@@ -61,7 +61,6 @@ function setBoardVisible(on){
 }
 function showCenter(el){ el.classList.remove('hidden'); }
 function hideCenter(el){ el.classList.add('hidden'); }
-
 function showPhaseOverlay(main, sub, withPreview=false){
   overlayText.textContent = main;
   overlaySub.textContent = sub||"";
@@ -77,15 +76,21 @@ function resizeCanvas(){
   cell = computeCell(gridW, gridH);
   cvs.width = gridW * cell;
   cvs.height = gridH * cell;
+  // CSS pixels == canvas pixels; prevents scaling differences
   cvs.style.width = cvs.width + "px";
   cvs.style.height = cvs.height + "px";
 }
+
 function positionPreviewCanvas(){
+  // place previewCanvas exactly over #grid (same top-left)
   const boardRect = cvs.getBoundingClientRect();
   const overlayRect = phaseOverlay.getBoundingClientRect();
-  previewCanvas.style.left = (boardRect.left - overlayRect.left) + "px";
-  previewCanvas.style.top  = (boardRect.top  - overlayRect.top)  + "px";
+  const left = boardRect.left - overlayRect.left;
+  const top  = boardRect.top  - overlayRect.top;
+  previewCanvas.style.left = left + "px";
+  previewCanvas.style.top  = top  + "px";
 }
+
 function draw(){
   if(!board || cvs.classList.contains('hidden')) return;
   const now=Date.now();
@@ -115,6 +120,7 @@ function draw(){
 
 function drawPreviewCanvas(){
   if(!blueprint) return;
+  // EXACT 1:1 with live board
   const px = cell || computeCell(gridW, gridH);
   previewCanvas.width = gridW * px;
   previewCanvas.height = gridH * px;
@@ -123,15 +129,18 @@ function drawPreviewCanvas(){
 
   pctx.clearRect(0,0,previewCanvas.width,previewCanvas.height);
 
+  // background
   for(let y=0;y<gridH;y++) for(let x=0;x<gridW;x++){
     pctx.fillStyle="#0b0f1d"; pctx.fillRect(x*px,y*px,px,px);
   }
+  // tinted blueprint
   for(let y=0;y<gridH;y++) for(let x=0;x<gridW;x++){
     const t=blueprint[y][x]; if(t===TILES.EMPTY) continue;
     pctx.globalAlpha=.26;
     pctx.fillStyle=(t===TILES.WALL?COLORS.wall:t===TILES.WINDOW?COLORS.window:t===TILES.DOOR?COLORS.door:COLORS.roof);
     pctx.fillRect(x*px+2,y*px+2,px-4,px-4); pctx.globalAlpha=1;
   }
+  // gridlines identical to live board
   pctx.strokeStyle=COLORS.grid;
   for(let x=0;x<=gridW;x++){ pctx.beginPath(); pctx.moveTo(x*px,0); pctx.lineTo(x*px,gridH*px); pctx.stroke(); }
   for(let y=0;y<=gridH;y++){ pctx.beginPath(); pctx.moveTo(0,y*px); pctx.lineTo(gridW*px,y*px); pctx.stroke(); }
@@ -156,14 +165,14 @@ joinBtn.onclick = ()=>{
     roomLabelBig.textContent=code;
     hideCenter(welcomeOverlay);
     showCenter(lobbyOverlay);
-    updateModeRadios();
+    updateModeRadios();          // reflect mode immediately for non-hosts
     if(spectator){ showPhaseOverlay("Spectating","Match in progress"); }
   });
 };
 
 // --- Lobby controls ---
 function updateModeRadios(){
-  if(modeLabel) modeLabel.textContent = `Mode: ${matchType === 'competitive' ? 'Competitive' : 'Team'}`;
+  if(modeLabelEl) modeLabelEl.textContent = `Mode: ${matchType === 'competitive' ? 'Competitive' : 'Team'}`;
   for(const r of modeRadios){
     r.checked = (r.value===matchType);
     r.onchange = null; r.onclick = null; r.disabled = false;
@@ -184,18 +193,7 @@ readyBtn.onclick = ()=>{
 startBtn.onclick = ()=> socket.emit('startMatch',{code});
 
 // --- Actions ---
-submitBtn.onclick = ()=>{
-  if(!code) return;
-  // instant UI feedback
-  submitBtn.classList.remove('btn-warn','btn-ok'); // reset state
-  submitBtn.classList.add('btn-pulse');
-  const prior = submitBtn.textContent;
-  submitBtn.textContent = "Submitting…";
-  submitBtn.disabled = true;
-  socket.emit('submit',{code});
-  // fallback in case no ack arrives (shouldn't happen)
-  setTimeout(()=>{ if(submitBtn.disabled){ submitBtn.disabled=false; submitBtn.textContent=prior; }}, 1500);
-};
+submitBtn.onclick = ()=> socket.emit('submit',{code});
 peekBtn.onclick = ()=> socket.emit('peek',{code});
 
 // --- Palette ---
@@ -212,7 +210,7 @@ window.addEventListener('keydown',(e)=>{
   if(map[e.key]!=null){ currentTile=map[e.key]; }
 });
 
-// --- Canvas interactions ---
+// --- Canvas interactions (Build only) ---
 cvs.addEventListener('contextmenu',e=>e.preventDefault());
 cvs.addEventListener('mousedown',(e)=>{
   if(!code || spectator) return;
@@ -255,6 +253,7 @@ socket.on('lobby',(st)=>{
 
   showCenter(lobbyOverlay);
   hideCenter(welcomeOverlay);
+  // keep board hidden in lobby
   setBoardVisible(false);
   hidePhaseOverlay();
   hideModal();
@@ -271,8 +270,8 @@ socket.on('roundSetup',({gridW:W,gridH:H,blueprint:bp,board:b,matchType:mt,round
   submitBtn.classList.toggle('hidden', matchType!=="competitive");
   peekBtn.classList.toggle('hidden', matchType!=="team");
   buildPalette();
-  resizeCanvas();
-  // keep board visible; preview overlay sits right on top
+  resizeCanvas(); // compute cell and size board before preview for exact overlay
+  // leave board visible during preview (clicks blocked by phase check + overlay)
   setBoardVisible(true);
   bottomBar.classList.add('hidden');
   topHUD.classList.add('hidden');
@@ -282,6 +281,7 @@ socket.on('phase',(ph)=>{
   if(ph.countdownEndsAt) countdownEndsAt=ph.countdownEndsAt;
   if(ph.previewEndsAt)   previewEndsAt=ph.previewEndsAt;
   if(ph.buildEndsAt)     buildEndsAt=ph.buildEndsAt;
+
   phase=ph.phase;
 
   if(phase==="countdown"){
@@ -293,13 +293,12 @@ socket.on('phase',(ph)=>{
     showPhaseOverlay("Get Ready","Starting soon", false);
   } else if(phase==="preview"){
     resizeCanvas();
-    setBoardVisible(true);
-    bottomBar.classList.add('hidden');
+    setBoardVisible(true);                // KEEP BOARD VISIBLE
+    bottomBar.classList.add('hidden');    // no actions
     topHUD.classList.add('hidden');
-    // BIG, undeniable label during blueprint preview:
-    showPhaseOverlay("BLUEPRINT!","Memorize it!", true);
-    drawPreviewCanvas();
-    positionPreviewCanvas();
+    showPhaseOverlay("Blueprint","Memorize it!", true);
+    drawPreviewCanvas();                  // 1:1 pixels
+    positionPreviewCanvas();              // same screen position
   } else if(phase==="build"){
     resizeCanvas();
     hidePhaseOverlay();
@@ -338,25 +337,10 @@ socket.on('playerFinished',({id,rank})=>{
   if(id===selfId){ showPhaseOverlay(`Finished!`,`Place: ${rank}`, false); setTimeout(()=> hidePhaseOverlay(),1200); }
 });
 
+// clean abort notice from server (1v1 leave)
 socket.on('opponentLeft',()=>{
   showPhaseOverlay("Opponent left","Round ended", false);
   setBoardVisible(false);
-});
-
-// NEW: visual Submit feedback from server
-socket.on('submitAck',({ok, count, reason})=>{
-  const prior = "Submit";
-  submitBtn.disabled = false;
-  submitBtn.classList.remove('btn-pulse');
-  if(ok){
-    submitBtn.textContent = `Submitted ✓${count?` (${count})`:''}`;
-    submitBtn.classList.add('btn-ok','btn-pulse');
-    setTimeout(()=>{ submitBtn.classList.remove('btn-ok'); submitBtn.textContent=prior; }, 900);
-  } else {
-    submitBtn.textContent = (reason==="rate") ? "Too fast ⏱" : "Not allowed";
-    submitBtn.classList.add('btn-warn','btn-pulse');
-    setTimeout(()=>{ submitBtn.classList.remove('btn-warn'); submitBtn.textContent=prior; }, 1000);
-  }
 });
 
 socket.on('roundResults',({roundNum:rn,entries})=>{

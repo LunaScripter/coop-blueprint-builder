@@ -23,6 +23,7 @@ const TEAM_ROUND =  { gridW:28, gridH:20, previewSec:6, buildSec:120, peekTokens
 function makeGrid(w,h,fill=TILES.EMPTY){ return Array.from({length:h},()=>Array(w).fill(fill)); }
 const rnd = (a,b)=>Math.floor(Math.random()*(b-a+1))+a;
 
+/** side-view façade blueprint */
 function makeFacadeBlueprint(w,h){
   const g = makeGrid(w,h,TILES.EMPTY);
   const baseY = h - 3;
@@ -81,7 +82,7 @@ function newRoom(){
     players: new Set(),
     spectators: new Set(),
     ready: new Set(),
-    matchType: "competitive",
+    matchType: "competitive", // "competitive" | "team"
     phase: "lobby",
     totalRounds: 3,
     roundNum: 0,
@@ -89,6 +90,7 @@ function newRoom(){
     gridW: 0, gridH: 0,
     blueprint: null,
 
+    // Competitive
     boardsByPlayer: {},
     finished: [],
     edits: {},
@@ -96,15 +98,18 @@ function newRoom(){
     submits: {},
     lastSubmit: {},
 
+    // Team
     teamBoard: null,
     peekUntil: 0,
     peeksRemaining: 0,
 
+    // Timers
     countdownEndsAt: 0,
     previewEndsAt: 0,
     buildEndsAt: 0,
     timers: { countdown:null, preview:null, build:null, results:null },
 
+    // Points across rounds
     points: {}
   };
   return rooms[code];
@@ -136,6 +141,7 @@ function clearTimers(r){
     if(r.timers[k]) { clearTimeout(r.timers[k]); r.timers[k]=null; }
   }
 }
+
 function abortMatch(r){
   clearTimers(r);
   r.phase = "lobby";
@@ -159,7 +165,7 @@ function setupRound(r){
     r.finished = [];
     r.edits = {}; r.submits = {}; r.lastSubmit = {};
     for(const id of r.players){ r.boardsByPlayer[id] = makeGrid(r.gridW,r.gridH,TILES.EMPTY); r.edits[id]=0; r.submits[id]=0; }
-  } else {
+  } else { // team
     const cfg = TEAM_ROUND;
     r.gridW = cfg.gridW; r.gridH = cfg.gridH; r.editCap = cfg.editCap;
     r.blueprint = makeFacadeBlueprint(r.gridW,r.gridH);
@@ -277,6 +283,7 @@ io.on("connection",(socket)=>{
     if(r.phase!=="lobby"){ r.spectators.add(socket.id); }
     else { r.players.add(socket.id); }
     cb?.({ ok:true, code, selfId:socket.id, hostId:r.hostId, matchType:r.matchType, phase:r.phase, roundNum:r.roundNum, totalRounds:r.totalRounds, spectator: r.phase!=="lobby" });
+    // Immediately tell the joiner the current mode so they see the selected radio
     socket.emit("modeUpdate",{ matchType:r.matchType });
     broadcastLobby(r);
   });
@@ -287,6 +294,7 @@ io.on("connection",(socket)=>{
     if(r.phase!=="lobby") return;
     if(matchType!=="competitive" && matchType!=="team") return;
     r.matchType = matchType;
+    // broadcast explicit mode change so non-host radios update instantly
     io.to(r.code).emit("modeUpdate",{ matchType:r.matchType });
     broadcastLobby(r);
   });
@@ -361,20 +369,14 @@ io.on("connection",(socket)=>{
 
   socket.on("submit",({code})=>{
     const r = rooms[code]; if(!r) return;
-    if(r.matchType!=="competitive") { socket.emit("submitAck",{ok:false, reason:"mode"}); return; }
-    if(r.phase!=="build")            { socket.emit("submitAck",{ok:false, reason:"phase"}); return; }
-    if(!r.players.has(socket.id))    { socket.emit("submitAck",{ok:false, reason:"spectator"}); return; }
+    if(r.matchType!=="competitive") return;
+    if(r.phase!=="build") return;
+    if(!r.players.has(socket.id)) return;
 
-    const now = Date.now();
     const last = r.lastSubmit[socket.id]||0;
-    if(now - last < 1000){
-      socket.emit("submitAck",{ok:false, reason:"rate"});
-      return;
-    }
-    r.lastSubmit[socket.id] = now;
+    if(Date.now()-last < 1000) return;
+    r.lastSubmit[socket.id] = Date.now();
     r.submits[socket.id] = (r.submits[socket.id]||0)+1;
-
-    socket.emit("submitAck",{ok:true, count:r.submits[socket.id]});
 
     if(!r.finished.find(f=>f.id===socket.id) && boardsEqual(r.boardsByPlayer[socket.id], r.blueprint)){
       const rank = r.finished.length + 1;
@@ -400,9 +402,11 @@ io.on("connection",(socket)=>{
     }
 
     if(r.phase!=="lobby"){
+      // Always tell clients someone left
       io.to(r.code).emit("opponentLeft",{ id:leftId });
+      // If it's 1v1 (or now <2), show notice briefly then abort to lobby
       if(r.players.size < 2){
-        setTimeout(()=> abortMatch(r), 900);
+        setTimeout(()=> abortMatch(r), 800);
         return;
       }
     }
