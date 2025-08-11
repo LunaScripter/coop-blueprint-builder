@@ -1,36 +1,31 @@
 <!doctype html>
 <html>
 <head>
-  <meta charset="utf-8"/>
+  <meta charset="utf-8" />
   <title>Co-op Builder — Rounds</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <link rel="stylesheet" href="style.css"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="app">
+    <aside id="left" class="hidden"></aside>
+
     <main>
-      <!-- Board wrapper keeps everything aligned and predictable -->
-      <div id="boardWrap" class="hidden">
-        <canvas id="grid" width="880" height="720"></canvas>
-        <canvas id="previewCanvas" width="1" height="1" class="hidden"></canvas>
-
-        <!-- Small, non-blocking pills INSIDE the board (no overlays) -->
-        <div id="bpLabel" class="pill hidden">BLUEPRINT!</div>
-        <div id="bpTimer" class="pill hidden"></div>
-      </div>
-
-      <!-- HUD -->
+      <!-- Top HUD -->
       <div id="topHUD" class="hud-top hidden">
         <div id="roundLabel">Round —</div>
         <div id="timerLabel">—s</div>
-        <div id="submitStatus"></div>
       </div>
 
+      <!-- Game board -->
+      <canvas id="grid" class="board hidden" width="880" height="720"></canvas>
+
+      <!-- Bottom bar -->
       <div id="bottomBar" class="hud-bottom hidden">
         <div id="paletteBar" class="palette-bar"></div>
         <div class="actions-bar">
           <button id="peekBtn" class="hidden">Peek <span id="peekLeft">x0</span></button>
-          <button id="submitBtn" class="">Submit</button>
+          <button id="submitBtn" class="hidden">Submit</button>
         </div>
       </div>
 
@@ -40,7 +35,7 @@
           <h2>Co-op Builder</h2>
           <div class="row center gap wrap">
             <button id="createBtn">Create Room</button>
-            <input id="codeInput" placeholder="Room code (AB12CD)"/>
+            <input id="codeInput" placeholder="Room code (AB12CD)" />
             <button id="joinBtn">Join</button>
           </div>
           <div class="hint">Create a room or enter a code from a friend.</div>
@@ -52,16 +47,34 @@
         <div class="panel large">
           <h2>Room <span id="roomLabelBig">—</span></h2>
           <div class="sub">Players: <span id="pcountBig">0</span> · Ready: <span id="readyBig">0</span></div>
+
+          <!-- NEW: a clear mode label that all players see -->
+          <div id="modeLabel" class="sub">Mode: —</div>
+
           <div class="row center gap">
             <label><input type="radio" name="mtype" value="competitive" checked> Competitive</label>
             <label><input type="radio" name="mtype" value="team"> Team</label>
           </div>
+
           <div class="row center gap">
             <button id="readyBtn">Ready</button>
             <button id="startBtn" disabled>Start Match</button>
           </div>
           <div id="hostHint" class="hint"></div>
+          <div class="row center gap">
+            <label id="modeLabel" class="sub">Mode: Competitive</label>
+          </div>
+          <div class="row center gap">
+            <label><input type="checkbox" id="instantNextBox"> Instant Next (skip results)</label>
+          </div>
         </div>
+      </div>
+
+      <!-- Phase overlay -->
+      <div id="phaseOverlay" class="overlay hidden">
+        <div id="overlayText">Blueprint</div>
+        <div id="overlaySub"></div>
+        <canvas id="previewCanvas" width="1" height="1" class="hidden"></canvas>
       </div>
 
       <!-- Results modal -->
