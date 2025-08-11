@@ -8,9 +8,9 @@
 </head>
 <body>
   <div id="app">
+    <!-- Left panel only for create/join; hidden once you’re in the lobby/game -->
     <aside id="left">
       <h1>Co-op Builder</h1>
-
       <div id="sessionCard" class="card">
         <button id="create">Create Room</button>
         <div class="join">
@@ -18,47 +18,58 @@
           <button id="join">Join</button>
         </div>
       </div>
-
       <div class="card">
         <div class="row"><span>Room:</span><strong id="roomLabel">—</strong></div>
         <div class="row"><span>Players:</span><strong id="pcount">0</strong></div>
         <div class="row"><span>Ready:</span><strong id="readyCount">0</strong></div>
         <div class="row"><span>Round:</span><strong id="roundInfo">—</strong></div>
       </div>
-
-      <div id="lobbyCard" class="card hidden">
-        <h2>Match</h2>
-        <div class="row">
-          <label><input type="radio" name="mtype" value="competitive" checked> Competitive</label>
-          <label><input type="radio" name="mtype" value="team"> Team</label>
-        </div>
-        <div class="row"><button id="readyBtn">Ready</button><button id="startBtn" disabled>Start Match</button></div>
-        <div id="hostHint" class="hint"></div>
-      </div>
-
-      <div id="buildCard" class="card hidden">
-        <div class="row"><span>Phase</span><strong id="phaseLbl">—</strong></div>
-        <div class="row"><span>Time</span><strong id="timeLbl">—</strong></div>
-        <div class="row" id="compBtns"><button id="submitBtn">Submit</button></div>
-        <div class="row hidden" id="teamBtns"><button id="peekBtn">Peek</button><span id="peekLeft"></span></div>
-        <div id="status"></div>
-      </div>
-
-      <div class="card">
-        <h2>Palette</h2>
-        <div id="palette" class="palette"></div>
-        <p class="tip">Click = place. Right-click = erase. Keys 1–5 switch tiles.</p>
-      </div>
+      <p class="tip">Tip: After you join, controls move to the middle.</p>
     </aside>
 
     <main>
+      <!-- Top HUD: round + timer -->
+      <div id="topHUD" class="hud-top hidden">
+        <div id="roundLabel">Round —</div>
+        <div id="timerLabel">—s</div>
+      </div>
+
+      <!-- The board -->
       <canvas id="grid" width="880" height="720"></canvas>
 
-      <div id="overlay" class="overlay hidden">
+      <!-- Bottom bar: palette + action button(s) -->
+      <div id="bottomBar" class="hud-bottom hidden">
+        <div id="paletteBar" class="palette-bar"></div>
+        <div id="actionsBar" class="actions-bar">
+          <button id="peekBtn" class="hidden">Peek <span id="peekLeft">x0</span></button>
+          <button id="submitBtn" class="hidden">Submit</button>
+        </div>
+      </div>
+
+      <!-- Centered Lobby Overlay (Ready/Start, host picks mode) -->
+      <div id="lobbyOverlay" class="center-overlay hidden">
+        <div class="panel large">
+          <h2>Room <span id="roomLabelBig">—</span></h2>
+          <div id="playersLine" class="sub">Players: <span id="pcountBig">0</span> · Ready: <span id="readyBig">0</span></div>
+          <div class="row center">
+            <label><input type="radio" name="mtype" value="competitive" checked> Competitive</label>
+            <label><input type="radio" name="mtype" value="team"> Team</label>
+          </div>
+          <div class="row center gap">
+            <button id="readyBtn">Ready</button>
+            <button id="startBtn" disabled>Start Match</button>
+          </div>
+          <div id="hostHint" class="hint"></div>
+        </div>
+      </div>
+
+      <!-- Phase overlay: Countdown / Blueprint / Build! -->
+      <div id="phaseOverlay" class="overlay hidden">
         <div id="overlayText">Blueprint</div>
         <div id="overlaySub"></div>
       </div>
 
+      <!-- Results modal -->
       <div id="scorePanel" class="modal hidden">
         <div class="panel">
           <h3 id="resultTitle">Round Results</h3>

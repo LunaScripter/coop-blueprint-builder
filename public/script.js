@@ -1,4 +1,4 @@
-// --- State & elements ---
+// --- State ---
 const socket = io();
 let code=null, selfId=null, hostId=null, matchType="competitive";
 let spectator=false;
@@ -11,48 +11,61 @@ let peekUntil=0, peeksRemaining=0;
 
 const TILES = { EMPTY:0, WALL:1, WINDOW:2, DOOR:3, ROOF:4 };
 const TILE_NAMES = ["Empty","Wall","Window","Door","Roof"];
-const COLORS = {
-  grid:"#1a203a", cell:"#0f142b",
-  wall:"#5b91ff", window:"#5bffd2", door:"#ffd35b", roof:"#ff5b9f"
-};
+const COLORS = { grid:"#1a203a", cell:"#0f142b", wall:"#5b91ff", window:"#5bffd2", door:"#ffd35b", roof:"#ff5b9f" };
 let cell=36, currentTile=TILES.WALL;
 
-// UI refs
-const cvs = document.getElementById('grid'); const ctx = cvs.getContext('2d');
+// --- Elements ---
+const leftCol = document.getElementById('left');
 const sessionCard = document.getElementById('sessionCard');
-const lobbyCard = document.getElementById('lobbyCard');
-const buildCard = document.getElementById('buildCard');
 const pcountEl = document.getElementById('pcount');
 const readyCountEl = document.getElementById('readyCount');
 const roomLabel = document.getElementById('roomLabel');
 const roundInfo = document.getElementById('roundInfo');
-const phaseLbl = document.getElementById('phaseLbl');
-const timeLbl = document.getElementById('timeLbl');
-const overlay = document.getElementById('overlay');
-const overlayText = document.getElementById('overlayText');
-const overlaySub = document.getElementById('overlaySub');
+
+const cvs = document.getElementById('grid'); const ctx = cvs.getContext('2d');
+
+// Top HUD
+const topHUD = document.getElementById('topHUD');
+const roundLabel = document.getElementById('roundLabel');
+const timerLabel = document.getElementById('timerLabel');
+
+// Bottom bar
+const bottomBar = document.getElementById('bottomBar');
+const paletteBar = document.getElementById('paletteBar');
+const actionsBar = document.getElementById('actionsBar');
 const peekBtn = document.getElementById('peekBtn');
 const peekLeft = document.getElementById('peekLeft');
 const submitBtn = document.getElementById('submitBtn');
-const compBtns = document.getElementById('compBtns');
-const teamBtns = document.getElementById('teamBtns');
-const statusEl = document.getElementById('status');
-const closeScore = document.getElementById('closeScore');
-const scorePanel = document.getElementById('scorePanel');
-const scoreList = document.getElementById('scoreList');
-const resultTitle = document.getElementById('resultTitle');
+
+// Lobby overlay (center)
+const lobbyOverlay = document.getElementById('lobbyOverlay');
+const roomLabelBig = document.getElementById('roomLabelBig');
+const pcountBig = document.getElementById('pcountBig');
+const readyBig = document.getElementById('readyBig');
 const startBtn = document.getElementById('startBtn');
 const readyBtn = document.getElementById('readyBtn');
 const hostHint = document.getElementById('hostHint');
 const modeRadios = document.getElementsByName('mtype');
 
-// Session create/join
+// Phase overlay
+const phaseOverlay = document.getElementById('phaseOverlay');
+const overlayText = document.getElementById('overlayText');
+const overlaySub = document.getElementById('overlaySub');
+
+// Results modal
+const scorePanel = document.getElementById('scorePanel');
+const scoreList = document.getElementById('scoreList');
+const resultTitle = document.getElementById('resultTitle');
+const closeScore = document.getElementById('closeScore');
+
+// --- Session create/join ---
 document.getElementById('create').onclick = ()=>{
   socket.emit('createRoom',(res)=>{
     if(!res.ok) return alert(res.error||'Failed');
     code=res.code; selfId=res.selfId; hostId=res.hostId; matchType=res.matchType;
-    roomLabel.textContent=code; spectator=false;
-    sessionCard.classList.add('hidden'); lobbyCard.classList.remove('hidden');
+    spectator=false; roomLabel.textContent=code; roomLabelBig.textContent=code;
+    // Hide left column once joined; show lobby overlay in middle
+    leftCol.classList.add('hidden'); lobbyOverlay.classList.remove('hidden');
     updateModeRadios();
   });
 };
@@ -61,48 +74,50 @@ document.getElementById('join').onclick = ()=>{
   socket.emit('joinRoom',{code:c},(res)=>{
     if(!res.ok) return alert(res.error||'Failed');
     code=c; selfId=res.selfId; hostId=res.hostId; matchType=res.matchType; spectator=!!res.spectator;
-    roomLabel.textContent=code;
-    sessionCard.classList.add('hidden'); lobbyCard.classList.remove('hidden');
+    roomLabel.textContent=code; roomLabelBig.textContent=code;
+    leftCol.classList.add('hidden'); lobbyOverlay.classList.remove('hidden');
     updateModeRadios();
-    if(spectator){ statusEl.textContent="Spectating until next match."; }
+    if(spectator){ showPhaseOverlay("Spectating","Match in progress"); }
   });
 };
 
-// Lobby: mode select (host only), ready, start
+// --- Lobby controls (center overlay) ---
 function updateModeRadios(){
   for(const r of modeRadios){
     r.checked = (r.value===matchType);
     r.disabled = (selfId!==hostId);
-    r.onchange = ()=>{
-      if(r.checked) socket.emit('setMatchType',{code, matchType:r.value});
-    };
+    r.onchange = ()=>{ if(r.checked) socket.emit('setMatchType',{code, matchType:r.value}); };
   }
-  hostHint.textContent = (selfId===hostId) ? "You are host." : "Host controls mode & start.";
+  hostHint.textContent = (selfId===hostId) ? "You are host." : "Waiting for host…";
 }
 readyBtn.onclick = ()=>{
-  readyBtn.dataset.ready = (readyBtn.dataset.ready!=="true") ? "true" : "false";
-  readyBtn.textContent = (readyBtn.dataset.ready==="true") ? "Unready" : "Ready";
-  socket.emit('setReady',{code, ready: readyBtn.dataset.ready==="true"});
+  const on = readyBtn.dataset.ready!=="true";
+  readyBtn.dataset.ready = on ? "true" : "false";
+  readyBtn.textContent = on ? "Unready" : "Ready";
+  socket.emit('setReady',{code, ready:on});
 };
 startBtn.onclick = ()=> socket.emit('startMatch',{code});
 
-// Build buttons
+// --- Actions ---
 submitBtn.onclick = ()=> socket.emit('submit',{code});
 peekBtn.onclick = ()=> socket.emit('peek',{code});
 
-// Palette
-const palRoot = document.getElementById('palette');
-[ TILES.EMPTY, TILES.WALL, TILES.WINDOW, TILES.DOOR, TILES.ROOF ].forEach(t=>{
-  const b=document.createElement('button'); b.textContent=TILE_NAMES[t];
-  b.onclick=()=>{ currentTile=t; statusEl.textContent=`Selected: ${TILE_NAMES[currentTile]}`; };
-  palRoot.appendChild(b);
-});
+// --- Palette on bottom bar ---
+function buildPalette(){
+  paletteBar.innerHTML = "";
+  [TILES.EMPTY,TILES.WALL,TILES.WINDOW,TILES.DOOR,TILES.ROOF].forEach(t=>{
+    const b=document.createElement('button');
+    b.textContent=TILE_NAMES[t];
+    b.onclick=()=>{ currentTile=t; };
+    paletteBar.appendChild(b);
+  });
+}
 window.addEventListener('keydown',(e)=>{
   const map={'1':TILES.EMPTY,'2':TILES.WALL,'3':TILES.WINDOW,'4':TILES.DOOR,'5':TILES.ROOF};
-  if(map[e.key]!=null){ currentTile=map[e.key]; statusEl.textContent=`Selected: ${TILE_NAMES[currentTile]}`; }
+  if(map[e.key]!=null){ currentTile=map[e.key]; }
 });
 
-// Canvas interactions
+// --- Canvas interactions ---
 cvs.addEventListener('contextmenu',e=>e.preventDefault());
 cvs.addEventListener('mousedown',(e)=>{
   if(!code || spectator) return;
@@ -115,6 +130,7 @@ cvs.addEventListener('mousedown',(e)=>{
   socket.emit('placeTile',{code,x,y,tile});
 });
 
+// --- Rendering ---
 function resizeCanvas(){
   cell = Math.floor(Math.min(880/gridW, 720/gridH, 40));
   cvs.width = gridW*cell; cvs.height = gridH*cell;
@@ -122,106 +138,112 @@ function resizeCanvas(){
 function draw(){
   if(!board){ ctx.clearRect(0,0,cvs.width,cvs.height); return; }
   ctx.clearRect(0,0,cvs.width,cvs.height);
-  // bg cells
+  // background
   for(let y=0;y<gridH;y++) for(let x=0;x<gridW;x++){
-    ctx.fillStyle = COLORS.cell;
-    ctx.fillRect(x*cell,y*cell,cell,cell);
+    ctx.fillStyle=COLORS.cell; ctx.fillRect(x*cell,y*cell,cell,cell);
   }
-  // blueprint only during preview, or team peek window
+  // blueprint visible only in preview or (team) peek window
   const now=Date.now();
-  const showBp = (phase==="preview") || (matchType==="team" && now < peekUntil);
+  const showBp = (phase==="preview") || (matchType==="team" && now<peekUntil);
   if(showBp && blueprint){
     for(let y=0;y<gridH;y++) for(let x=0;x<gridW;x++){
       const t=blueprint[y][x]; if(t===TILES.EMPTY) continue;
-      ctx.globalAlpha = 0.18;
-      ctx.fillStyle =
-        t===TILES.WALL?COLORS.wall : t===TILES.WINDOW?COLORS.window : t===TILES.DOOR?COLORS.door : COLORS.roof;
+      ctx.globalAlpha=.18;
+      ctx.fillStyle=(t===TILES.WALL?COLORS.wall:t===TILES.WINDOW?COLORS.window:t===TILES.DOOR?COLORS.door:COLORS.roof);
       ctx.fillRect(x*cell+2,y*cell+2,cell-4,cell-4);
-      ctx.globalAlpha = 1;
+      ctx.globalAlpha=1;
     }
   }
   // placed tiles
   for(let y=0;y<gridH;y++) for(let x=0;x<gridW;x++){
     const t=board[y][x]; if(t===TILES.EMPTY) continue;
-    ctx.fillStyle =
-      t===TILES.WALL?COLORS.wall : t===TILES.WINDOW?COLORS.window : t===TILES.DOOR?COLORS.door : COLORS.roof;
+    ctx.fillStyle=(t===TILES.WALL?COLORS.wall:t===TILES.WINDOW?COLORS.window:t===TILES.DOOR?COLORS.door:COLORS.roof);
     ctx.fillRect(x*cell+4,y*cell+4,cell-8,cell-8);
   }
   // grid lines
-  ctx.strokeStyle = COLORS.grid;
+  ctx.strokeStyle=COLORS.grid;
   for(let x=0;x<=gridW;x++){ ctx.beginPath(); ctx.moveTo(x*cell,0); ctx.lineTo(x*cell,gridH*cell); ctx.stroke(); }
   for(let y=0;y<=gridH;y++){ ctx.beginPath(); ctx.moveTo(0,y*cell); ctx.lineTo(gridW*cell,y*cell); ctx.stroke(); }
 }
 
-function showOverlay(main, sub){
-  overlayText.textContent = main;
-  overlaySub.textContent = sub||"";
-  overlay.classList.remove('hidden');
-}
-function hideOverlay(){ overlay.classList.add('hidden'); }
+// --- Overlays / HUD toggles ---
+function showPhaseOverlay(main,sub){ overlaySet(main,sub); phaseOverlay.classList.remove('hidden'); }
+function hidePhaseOverlay(){ phaseOverlay.classList.add('hidden'); }
+function overlaySet(main,sub){ overlayText.textContent=main; overlaySub.textContent=sub||""; }
 
-function setPhaseUI(p){
-  phase = p;
-  phaseLbl.textContent = p;
-  if(p==="build"){
-    // flash Build! for a second
-    showOverlay("Build!",""); setTimeout(()=> hideOverlay(), 900);
-  } else if(p==="preview"){
-    showOverlay("Blueprint","Memorize it!");
-  } else if(p==="countdown"){
-    showOverlay("Get Ready","3…2…1…");
-  } else {
-    hideOverlay();
-  }
+// Top/bottom bars only during match phases
+function setInGameUI(on){
+  topHUD.classList.toggle('hidden', !on);
+  bottomBar.classList.toggle('hidden', !on);
 }
 
-// Timers
+// Timer loop
 let timerInt=null;
 function startTimer(){
   if(timerInt) clearInterval(timerInt);
   timerInt = setInterval(()=>{
     const now=Date.now();
-    let ms=0, label="—";
-    if(phase==="countdown"){ ms = countdownEndsAt - now; label = "Starting"; }
-    else if(phase==="preview"){ ms = previewEndsAt - now; label = "Preview"; }
-    else if(phase==="build"){ ms = buildEndsAt - now; label = "Build"; }
+    let ms=0, label="";
+    if(phase==="countdown"){ ms = countdownEndsAt - now; label="Starting"; }
+    else if(phase==="preview"){ ms = previewEndsAt - now; label="Preview"; }
+    else if(phase==="build"){ ms = buildEndsAt - now; label="Build"; }
     const s = Math.max(0, Math.ceil(ms/1000));
-    timeLbl.textContent = s+"s";
+    timerLabel.textContent = s+"s";
+    roundLabel.textContent = (roundNum? `Round ${roundNum}/${totalRounds}` : "Round —");
     draw();
-    if(ms<=0 && phase!=="build"){ /* allow server to flip */ }
   }, 200);
 }
 
-// Sockets
+// --- Socket events ---
 socket.on('lobby', (st)=>{
+  // counts
   pcountEl.textContent = st.players.length;
+  pcountBig.textContent = st.players.length;
   readyCountEl.textContent = st.readyCount;
+  readyBig.textContent = st.readyCount;
+
   hostId = st.hostId; matchType = st.matchType;
   roundNum = st.roundNum; totalRounds = st.totalRounds;
   roundInfo.textContent = (roundNum>0? `${roundNum}/${totalRounds}` : "—");
-  // toggle cards
-  lobbyCard.classList.toggle('hidden', st.phase!=="lobby");
-  buildCard.classList.toggle('hidden', st.phase==="lobby");
-  // host controls
-  startBtn.disabled = !st.canStart || selfId!==hostId;
+  roomLabelBig.textContent = code||"—";
+
+  // Start eligibility
+  startBtn.disabled = !(st.canStart && selfId===hostId);
   updateModeRadios();
-  // comp/team buttons
-  compBtns.classList.toggle('hidden', matchType!=="competitive");
-  teamBtns.classList.toggle('hidden', matchType!=="team");
+
+  // Show lobby overlay if phase==lobby, else hide it
+  const inLobby = st.phase==="lobby";
+  lobbyOverlay.classList.toggle('hidden', !inLobby);
+
+  // Show/hide in-game HUD
+  setInGameUI(!inLobby);
 });
 
 socket.on('roundSetup', ({gridW:W, gridH:H, blueprint:bp, board:b, matchType:mt, roundNum:rn, totalRounds:tr, peeksRemaining:pr})=>{
   matchType = mt; gridW=W; gridH=H; blueprint=bp; board=b; roundNum=rn; totalRounds=tr;
-  peeksRemaining = pr||0; peekLeft.textContent = peeksRemaining>0? `x${peeksRemaining}`:"x0";
+  peeksRemaining = pr||0; peekLeft.textContent = `x${peeksRemaining}`;
+  // Bottom actions visibility
+  submitBtn.classList.toggle('hidden', matchType!=="competitive");
+  peekBtn.classList.toggle('hidden', matchType!=="team");
+  // Ensure palette is present
+  buildPalette();
   resizeCanvas(); draw();
 });
 
 socket.on('phase', (ph)=>{
   if(ph.countdownEndsAt) countdownEndsAt=ph.countdownEndsAt;
-  if(ph.previewEndsAt) previewEndsAt=ph.previewEndsAt;
-  if(ph.buildEndsAt) buildEndsAt=ph.buildEndsAt;
-  if(typeof ph.peeksRemaining==="number"){ peeksRemaining = ph.peeksRemaining; peekLeft.textContent = `x${peeksRemaining}`; }
-  setPhaseUI(ph.phase);
+  if(ph.previewEndsAt)   previewEndsAt=ph.previewEndsAt;
+  if(ph.buildEndsAt)     buildEndsAt=ph.buildEndsAt;
+
+  phase = ph.phase;
+  // Phase overlays
+  if(phase==="countdown"){ showPhaseOverlay("Get Ready","3…2…1…"); }
+  else if(phase==="preview"){ showPhaseOverlay("Blueprint","Memorize it!"); }
+  else if(phase==="build"){ showPhaseOverlay("Build!",""); setTimeout(()=> hidePhaseOverlay(), 900); }
+
+  // HUD active during pre/build
+  setInGameUI(phase!=="lobby" && phase!=="results" && phase!=="review");
+
   startTimer();
 });
 
@@ -233,19 +255,13 @@ socket.on('peekWindow', ({until, peeksRemaining:pr})=>{
 
 socket.on('gridUpdate', ({owner,x,y,tile})=>{
   if(!board) return;
-  // Competitive: only apply my own updates; Team: apply all
-  if(matchType==="competitive"){
-    if(owner!==selfId) return;
-  }
+  if(matchType==="competitive" && owner!==selfId) return; // only my board updates
   board[y][x]=tile;
   draw();
 });
 
 socket.on('playerFinished', ({id, rank})=>{
-  // minimal: flash overlay for placements
-  if(id===selfId){
-    showOverlay(`Finished!`, `Place: ${rank}`); setTimeout(()=> hideOverlay(), 1200);
-  }
+  if(id===selfId){ showPhaseOverlay(`Finished!`, `Place: ${rank}`); setTimeout(()=> hidePhaseOverlay(), 1200); }
 });
 
 socket.on('roundResults', ({roundNum:rn, entries})=>{
@@ -281,17 +297,9 @@ socket.on('matchSummary', ({entries})=>{
   scorePanel.classList.remove('hidden');
 });
 
-// Helpers
-function clamp(n,a,b){ return Math.max(a, Math.min(b,n)); }
-
-// Init
+// --- Init ---
 function init(){
-  // palette status
-  statusEl.textContent = `Selected: ${TILE_NAMES[currentTile]}`;
-  // default UI state
-  lobbyCard.classList.add('hidden');
-  buildCard.classList.add('hidden');
-  overlay.classList.add('hidden');
+  // start with left column visible (create/join); board idle
   draw();
 }
 init();
