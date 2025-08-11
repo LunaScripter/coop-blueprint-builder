@@ -8,19 +8,20 @@
 </head>
 <body>
   <div id="app">
+    <!-- Left column removed from flow (we’ll use center panels instead) -->
     <aside id="left" class="hidden"></aside>
 
     <main>
-      <!-- Top HUD -->
+      <!-- Top HUD (Build only) -->
       <div id="topHUD" class="hud-top hidden">
         <div id="roundLabel">Round —</div>
         <div id="timerLabel">—s</div>
       </div>
 
-      <!-- Game board -->
+      <!-- Game board (hidden until Build) -->
       <canvas id="grid" class="board hidden" width="880" height="720"></canvas>
 
-      <!-- Bottom bar -->
+      <!-- Bottom bar (Build only) -->
       <div id="bottomBar" class="hud-bottom hidden">
         <div id="paletteBar" class="palette-bar"></div>
         <div class="actions-bar">
@@ -29,7 +30,7 @@
         </div>
       </div>
 
-      <!-- Welcome -->
+      <!-- Welcome Overlay (center) -->
       <div id="welcomeOverlay" class="center-overlay">
         <div class="panel large">
           <h2>Co-op Builder</h2>
@@ -42,20 +43,15 @@
         </div>
       </div>
 
-      <!-- Lobby -->
+      <!-- Lobby Overlay (center after join/create) -->
       <div id="lobbyOverlay" class="center-overlay hidden">
         <div class="panel large">
           <h2>Room <span id="roomLabelBig">—</span></h2>
           <div class="sub">Players: <span id="pcountBig">0</span> · Ready: <span id="readyBig">0</span></div>
-
-          <!-- NEW: a clear mode label that all players see -->
-          <div id="modeLabel" class="sub">Mode: —</div>
-
           <div class="row center gap">
             <label><input type="radio" name="mtype" value="competitive" checked> Competitive</label>
             <label><input type="radio" name="mtype" value="team"> Team</label>
           </div>
-
           <div class="row center gap">
             <button id="readyBtn">Ready</button>
             <button id="startBtn" disabled>Start Match</button>
@@ -64,14 +60,14 @@
         </div>
       </div>
 
-      <!-- Phase overlay -->
+      <!-- Phase overlay: Countdown / Blueprint (with preview canvas) / Build! -->
       <div id="phaseOverlay" class="overlay hidden">
         <div id="overlayText">Blueprint</div>
         <div id="overlaySub"></div>
         <canvas id="previewCanvas" width="1" height="1" class="hidden"></canvas>
       </div>
 
-      <!-- Results modal -->
+      <!-- Results modal (hidden by default; no flicker) -->
       <div id="scorePanel" class="modal">
         <div class="panel">
           <h3 id="resultTitle">Round Results</h3>

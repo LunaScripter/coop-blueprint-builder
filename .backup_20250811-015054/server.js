@@ -23,7 +23,7 @@ const TEAM_ROUND =  { gridW:28, gridH:20, previewSec:6, buildSec:120, peekTokens
 function makeGrid(w,h,fill=TILES.EMPTY){ return Array.from({length:h},()=>Array(w).fill(fill)); }
 const rnd = (a,b)=>Math.floor(Math.random()*(b-a+1))+a;
 
-/** Side-view façade blueprint */
+/** Side-view façade blueprint (reads like a house) */
 function makeFacadeBlueprint(w,h){
   const g = makeGrid(w,h,TILES.EMPTY);
   const baseY = h - 3;
@@ -32,10 +32,13 @@ function makeFacadeBlueprint(w,h){
   const left = Math.floor((w - houseW)/2);
   const right = left + houseW - 1;
   const top = baseY - houseH + 1;
+  // outline
   for (let x=left;x<=right;x++){ g[top][x]=TILES.WALL; g[baseY][x]=TILES.WALL; }
   for (let y=top;y<=baseY;y++){ g[y][left]=TILES.WALL; g[y][right]=TILES.WALL; }
+  // door (2 wide)
   const doorX = rnd(left+2,right-3);
   g[baseY][doorX]=TILES.DOOR; g[baseY][doorX+1]=TILES.DOOR;
+  // windows
   const rowTop = top + Math.floor(houseH*0.35);
   const rowBot = top + Math.floor(houseH*0.65);
   const candidates = [
@@ -44,6 +47,7 @@ function makeFacadeBlueprint(w,h){
     [right-Math.max(5,Math.floor(houseW*0.35)), rowBot]
   ];
   for(const [x,y] of candidates){ if(x!==doorX && x!==(doorX+1)) g[y][x]=TILES.WINDOW; }
+  // roof (gable)
   const roofH = rnd(2,4);
   for(let r=0;r<roofH;r++){
     const y = top - 1 - r;
@@ -82,31 +86,35 @@ function newRoom(){
     players: new Set(),
     spectators: new Set(),
     ready: new Set(),
-    matchType: "competitive",
-    phase: "lobby",
+    matchType: "competitive", // "competitive" | "team"
+    phase: "lobby",           // lobby|countdown|preview|build|review|results
     totalRounds: 3,
     roundNum: 0,
 
     gridW: 0, gridH: 0,
     blueprint: null,
 
-    boardsByPlayer: {},
-    finished: [],
-    edits: {},
+    // Competitive
+    boardsByPlayer: {},  // id -> grid
+    finished: [],        // [{id, rank, finishedAt}]
+    edits: {},           // id -> count
     editCap: 400,
-    submits: {},
-    lastSubmit: {},
+    submits: {},         // id -> count
+    lastSubmit: {},      // id -> ms
 
+    // Team
     teamBoard: null,
     peekUntil: 0,
     peeksRemaining: 0,
 
+    // Timers
     countdownEndsAt: 0,
     previewEndsAt: 0,
     buildEndsAt: 0,
     timers: { countdown:null, preview:null, build:null, results:null },
 
-    points: {}
+    // Points across rounds
+    points: {} // id -> total
   };
   return rooms[code];
 }
@@ -115,7 +123,9 @@ function canStart(r){
   const n = r.players.size;
   if(r.phase!=="lobby") return false;
   const allReady = r.ready.size===n && n>=2;
-  return allReady && n>=2;
+  if(r.matchType==="competitive") return allReady && n>=2;
+  if(r.matchType==="team") return allReady && n>=2;
+  return false;
 }
 
 function broadcastLobby(r){
@@ -138,20 +148,6 @@ function clearTimers(r){
   }
 }
 
-function abortMatch(r, reason="opponent-left"){
-  clearTimers(r);
-  r.phase = "lobby";
-  r.roundNum = 0;
-  r.ready.clear();
-  r.blueprint = null;
-  r.boardsByPlayer = {};
-  r.teamBoard = null;
-  r.finished = [];
-  r.peekUntil = 0; r.peeksRemaining = 0;
-  io.to(r.code).emit("opponentLeft",{ reason });
-  broadcastLobby(r);
-}
-
 function setupRound(r){
   r.roundNum += 1;
   if(r.matchType==="competitive"){
@@ -162,7 +158,7 @@ function setupRound(r){
     r.finished = [];
     r.edits = {}; r.submits = {}; r.lastSubmit = {};
     for(const id of r.players){ r.boardsByPlayer[id] = makeGrid(r.gridW,r.gridH,TILES.EMPTY); r.edits[id]=0; r.submits[id]=0; }
-  } else {
+  } else { // team
     const cfg = TEAM_ROUND;
     r.gridW = cfg.gridW; r.gridH = cfg.gridH; r.editCap = cfg.editCap;
     r.blueprint = makeFacadeBlueprint(r.gridW,r.gridH);
@@ -198,6 +194,7 @@ function finishRound(r){
   const results = { roundNum:r.roundNum, entries:[] };
 
   if(r.matchType==="competitive"){
+    // build ranking
     const ranks = {};
     r.finished.forEach((f,i)=>{ ranks[f.id]=i+1; });
     for(const id of r.players){
@@ -207,10 +204,11 @@ function finishRound(r){
       if(ranks[id]===1) pts = 100;
       else if(ranks[id]===2) pts = 80;
       else if(ranks[id]===3) pts = 65;
-      else pts = accuracy;
+      else pts = accuracy; // others by accuracy
       r.points[id] = (r.points[id]||0) + pts;
       results.entries.push({ id, rank:ranks[id]||null, accuracy, wrong, pts, total:r.points[id] });
     }
+    // sort by rank then pts
     results.entries.sort((a,b)=>{
       if(a.rank && b.rank) return a.rank-b.rank;
       if(a.rank && !b.rank) return -1;
@@ -220,6 +218,7 @@ function finishRound(r){
   } else {
     const b = r.teamBoard;
     const {accuracy, wrong} = scoreAccuracy(b, r.blueprint);
+    // peeks penalty
     const peekSpent = (TEAM_ROUND.peekTokens - (r.peeksRemaining||0));
     let final = Math.max(0, Math.min(100, accuracy - Math.min(20, wrong*1) - peekSpent*5));
     for(const id of r.players){ r.points[id] = (r.points[id]||0) + final; }
@@ -228,10 +227,12 @@ function finishRound(r){
 
   io.to(r.code).emit("roundResults", results);
 
+  // Next or end match
   if(r.roundNum < r.totalRounds){
     r.phase = "results";
     r.timers.results = setTimeout(()=>{
       setupRound(r);
+      // per-player setup broadcast
       for(const id of r.players){
         const sock = io.sockets.sockets.get(id);
         if(!sock) continue;
@@ -244,10 +245,12 @@ function finishRound(r){
       beginCountdown(r);
     }, 5500);
   } else {
+    // match summary -> back to lobby
     const summary = [];
     for(const id of r.players){ summary.push({ id, total:r.points[id]||0 }); }
     summary.sort((a,b)=> b.total-a.total);
     io.to(r.code).emit("matchSummary", { entries: summary });
+    // reset to lobby
     r.phase = "lobby";
     r.roundNum = 0;
     r.ready.clear();
@@ -277,11 +280,10 @@ io.on("connection",(socket)=>{
     const r = rooms[code];
     if(!r) return cb?.({ ok:false, error:"Room not found." });
     socket.join(code); joined=code;
+    // If not lobby, late joiner becomes spectator
     if(r.phase!=="lobby"){ r.spectators.add(socket.id); }
     else { r.players.add(socket.id); }
     cb?.({ ok:true, code, selfId:socket.id, hostId:r.hostId, matchType:r.matchType, phase:r.phase, roundNum:r.roundNum, totalRounds:r.totalRounds, spectator: r.phase!=="lobby" });
-    // echo current mode explicitly (instant UI update)
-    socket.emit("modeUpdate",{ matchType:r.matchType });
     broadcastLobby(r);
   });
 
@@ -291,7 +293,6 @@ io.on("connection",(socket)=>{
     if(r.phase!=="lobby") return;
     if(matchType!=="competitive" && matchType!=="team") return;
     r.matchType = matchType;
-    io.to(r.code).emit("modeUpdate",{ matchType:r.matchType });
     broadcastLobby(r);
   });
 
@@ -310,6 +311,7 @@ io.on("connection",(socket)=>{
     r.points = {};
     r.roundNum = 0;
     setupRound(r);
+    // tell everyone initial round setup (board + bp)
     for(const id of r.players){
       const sock = io.sockets.sockets.get(id);
       if(!sock) continue;
@@ -335,6 +337,7 @@ io.on("connection",(socket)=>{
   socket.on("placeTile",({code,x,y,tile})=>{
     const r = rooms[code]; if(!r) return;
     if(r.phase!=="build") return;
+    // simple rate limit per player
     const key = `last:${socket.id}`;
     const now = Date.now();
     socket.data[key] = socket.data[key]||0;
@@ -342,22 +345,25 @@ io.on("connection",(socket)=>{
     socket.data[key] = now;
 
     if(r.matchType==="competitive"){
-      if(!r.players.has(socket.id)) return;
+      if(!r.players.has(socket.id)) return; // spectators can't build
       if(!r.boardsByPlayer[socket.id]) return;
       if(r.edits[socket.id]>=r.editCap) return;
       r.boardsByPlayer[socket.id][y][x] = tile;
       r.edits[socket.id]++;
+
       io.to(r.code).emit("gridUpdate",{ owner:socket.id, x,y,tile });
 
+      // silent completion check
       if(!r.finished.find(f=>f.id===socket.id) && boardsEqual(r.boardsByPlayer[socket.id], r.blueprint)){
         const rank = r.finished.length + 1;
         r.finished.push({ id:socket.id, rank, finishedAt:Date.now() });
         io.to(r.code).emit("playerFinished",{ id:socket.id, rank });
+        // if everyone finished early, end round
         if(r.finished.length === r.players.size){
           finishRound(r);
         }
       }
-    } else {
+    } else { // team
       if(!r.players.has(socket.id)) return;
       r.teamBoard[y][x] = tile;
       io.to(r.code).emit("gridUpdate",{ x,y,tile });
@@ -371,7 +377,7 @@ io.on("connection",(socket)=>{
     if(!r.players.has(socket.id)) return;
 
     const last = r.lastSubmit[socket.id]||0;
-    if(Date.now()-last < 1000) return;
+    if(Date.now()-last < 1000) return; // 1/sec
     r.lastSubmit[socket.id] = Date.now();
     r.submits[socket.id] = (r.submits[socket.id]||0)+1;
 
@@ -395,17 +401,22 @@ io.on("connection",(socket)=>{
     r.ready.delete(leftId);
 
     if(r.hostId===leftId){
+      // transfer host if possible
       r.hostId = Array.from(r.players)[0] || null;
     }
 
+    // Let clients know someone left (client shows a clean notice)
     if(r.phase!=="lobby"){
-      // Notify clients and abort if fewer than 2 players remain
       io.to(r.code).emit("opponentLeft",{ id:leftId });
-      if(r.players.size < 2){
-        abortMatch(r);
-        return;
-      }
     }
+
+    // If a competitive round is live and we drop below 2 players,
+    // end the entire match cleanly (no auto-advance, no "you win" popup)
+    if(r.phase!=="lobby" && r.matchType==="competitive" && r.players.size<2){
+      r.roundNum = r.totalRounds; // force finishRound to go to summary -> lobby
+      finishRound(r);
+    }
+
     broadcastLobby(r);
   });
 });

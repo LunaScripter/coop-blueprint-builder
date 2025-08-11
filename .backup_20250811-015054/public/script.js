@@ -34,7 +34,6 @@ const startBtn = document.getElementById('startBtn');
 const readyBtn = document.getElementById('readyBtn');
 const hostHint = document.getElementById('hostHint');
 const modeRadios = document.getElementsByName('mtype');
-const modeLabel = document.getElementById('modeLabel');
 
 const createBtn = document.getElementById('createBtn');
 const joinBtn = document.getElementById('joinBtn');
@@ -51,9 +50,7 @@ const scoreList = document.getElementById('scoreList');
 const resultTitle = document.getElementById('resultTitle');
 const closeScore = document.getElementById('closeScore');
 
-// --- Helpers ---
-const computeCell = (w,h)=> Math.floor(Math.min(880/w, 720/h, 40));
-
+// --- Helpers to show/hide sections ---
 function setBoardVisible(on){
   cvs.classList.toggle('hidden', !on);
   topHUD.classList.toggle('hidden', !on);
@@ -72,16 +69,81 @@ function hidePhaseOverlay(){ phaseOverlay.classList.add('hidden'); }
 function showModal(){ scorePanel.classList.add('show'); }
 function hideModal(){ scorePanel.classList.remove('show'); }
 
-function resizeCanvas(){
-  if(!gridW || !gridH) return;
-  cell = computeCell(gridW, gridH);
-  cvs.width = gridW * cell;
-  cvs.height = gridH * cell;
-  // ensure CSS size equals canvas pixel size (no scaling differences)
-  cvs.style.width = cvs.width + "px";
-  cvs.style.height = cvs.height + "px";
-}
+// --- Create / Join (center welcome) ---
+createBtn.onclick = ()=>{
+  socket.emit('createRoom',(res)=>{
+    if(!res.ok) return alert(res.error||'Failed');
+    code=res.code; selfId=res.selfId; hostId=res.hostId; matchType=res.matchType; spectator=false;
+    roomLabelBig.textContent=code;
+    hideCenter(welcomeOverlay);
+    showCenter(lobbyOverlay);
+    updateModeRadios();
+  });
+};
+joinBtn.onclick = ()=>{
+  const c = codeInput.value.trim().toUpperCase(); if(!c) return;
+  socket.emit('joinRoom',{code:c},(res)=>{
+    if(!res.ok) return alert(res.error||'Failed');
+    code=c; selfId=res.selfId; hostId=res.hostId; matchType=res.matchType; spectator=!!res.spectator;
+    roomLabelBig.textContent=code;
+    hideCenter(welcomeOverlay);
+    showCenter(lobbyOverlay);
+    updateModeRadios();
+    if(spectator){ showPhaseOverlay("Spectating","Match in progress"); }
+  });
+};
 
+// --- Lobby controls ---
+function updateModeRadios(){
+  for(const r of modeRadios){
+    r.checked = (r.value===matchType);
+    r.disabled = (selfId!==hostId);
+    r.onchange = ()=>{ if(r.checked) socket.emit('setMatchType',{code, matchType:r.value}); };
+  }
+  hostHint.textContent = (selfId===hostId)
+    ? `You are host. Mode: ${matchType === 'competitive' ? 'Competitive' : 'Team'}`
+    : `Waiting for host… Mode: ${matchType === 'competitive' ? 'Competitive' : 'Team'}`;
+}
+readyBtn.onclick = ()=>{
+  const on = readyBtn.dataset.ready!=="true";
+  readyBtn.dataset.ready = on ? "true" : "false";
+  readyBtn.textContent = on ? "Unready" : "Ready";
+  socket.emit('setReady',{code, ready:on});
+};
+startBtn.onclick = ()=> socket.emit('startMatch',{code});
+
+// --- Actions ---
+submitBtn.onclick = ()=> socket.emit('submit',{code});
+peekBtn.onclick = ()=> socket.emit('peek',{code});
+
+// --- Palette on bottom bar (Build only) ---
+function buildPalette(){
+  paletteBar.innerHTML = "";
+  [TILES.EMPTY,TILES.WALL,TILES.WINDOW,TILES.DOOR,TILES.ROOF].forEach(t=>{
+    const b=document.createElement('button'); b.textContent=TILE_NAMES[t];
+    b.onclick=()=>{ currentTile=t; };
+    paletteBar.appendChild(b);
+  });
+}
+window.addEventListener('keydown',(e)=>{
+  const map={'1':TILES.EMPTY,'2':TILES.WALL,'3':TILES.WINDOW,'4':TILES.DOOR,'5':TILES.ROOF};
+  if(map[e.key]!=null){ currentTile=map[e.key]; }
+});
+
+// --- Canvas interactions (Build only) ---
+cvs.addEventListener('contextmenu',e=>e.preventDefault());
+cvs.addEventListener('mousedown',(e)=>{
+  if(!code || spectator) return;
+  if(phase!=="build") return;
+  const r=cvs.getBoundingClientRect();
+  const x=Math.floor((e.clientX-r.left)/cell), y=Math.floor((e.clientY-r.top)/cell);
+  if(x<0||y<0||x>=gridW||y>=gridH) return;
+  const tile=(e.button===2)? TILES.EMPTY : currentTile;
+  socket.emit('placeTile',{code,x,y,tile});
+});
+
+// --- Drawing ---
+function resizeCanvas(){ cell=Math.floor(Math.min(880/gridW, 720/gridH, 40)); cvs.width=gridW*cell; cvs.height=gridH*cell; }
 function draw(){
   if(!board || cvs.classList.contains('hidden')) return;
   const now=Date.now();
@@ -108,15 +170,12 @@ function draw(){
   for(let x=0;x<=gridW;x++){ ctx.beginPath(); ctx.moveTo(x*cell,0); ctx.lineTo(x*cell,gridH*cell); ctx.stroke(); }
   for(let y=0;y<=gridH;y++){ ctx.beginPath(); ctx.moveTo(0,y*cell); ctx.lineTo(gridW*cell,y*cell); ctx.stroke(); }
 }
-
 function drawPreviewCanvas(){
   if(!blueprint) return;
-  // EXACT 1:1 with live board
-  const px = computeCell(gridW, gridH);
+  // EXACT 1:1 with the live board so players don’t mentally rescale
+  const px = cell || Math.floor(Math.min(880/gridW, 720/gridH, 40));
   previewCanvas.width = gridW * px;
   previewCanvas.height = gridH * px;
-  previewCanvas.style.width  = previewCanvas.width + "px";
-  previewCanvas.style.height = previewCanvas.height + "px";
 
   pctx.clearRect(0,0,previewCanvas.width,previewCanvas.height);
 
@@ -124,97 +183,19 @@ function drawPreviewCanvas(){
   for(let y=0;y<gridH;y++) for(let x=0;x<gridW;x++){
     pctx.fillStyle="#0b0f1d"; pctx.fillRect(x*px,y*px,px,px);
   }
-  // tinted blueprint
+  // tinted blueprint preview
   for(let y=0;y<gridH;y++) for(let x=0;x<gridW;x++){
     const t=blueprint[y][x]; if(t===TILES.EMPTY) continue;
     pctx.globalAlpha=.26;
     pctx.fillStyle=(t===TILES.WALL?COLORS.wall:t===TILES.WINDOW?COLORS.window:t===TILES.DOOR?COLORS.door:COLORS.roof);
-    pctx.fillRect(x*px+2,y*px+2,px-4,px-4); pctx.globalAlpha=1;
+    pctx.fillRect(x*px+2,y*px+2,px-4,px-4);
+    pctx.globalAlpha=1;
   }
-  // gridlines identical to live board
+  // gridlines identical to the live board
   pctx.strokeStyle=COLORS.grid;
   for(let x=0;x<=gridW;x++){ pctx.beginPath(); pctx.moveTo(x*px,0); pctx.lineTo(x*px,gridH*px); pctx.stroke(); }
   for(let y=0;y<=gridH;y++){ pctx.beginPath(); pctx.moveTo(0,y*px); pctx.lineTo(gridW*px,y*px); pctx.stroke(); }
 }
-
-// --- Create / Join ---
-createBtn.onclick = ()=>{
-  socket.emit('createRoom',(res)=>{
-    if(!res.ok) return alert(res.error||'Failed');
-    code=res.code; selfId=res.selfId; hostId=res.hostId; matchType=res.matchType; spectator=false;
-    roomLabelBig.textContent=code;
-    hideCenter(welcomeOverlay);
-    showCenter(lobbyOverlay);
-    updateModeRadios();
-  });
-};
-joinBtn.onclick = ()=>{
-  const c = codeInput.value.trim().toUpperCase(); if(!c) return;
-  socket.emit('joinRoom',{code:c},(res)=>{
-    if(!res.ok) return alert(res.error||'Failed');
-    code=c; selfId=res.selfId; hostId=res.hostId; matchType=res.matchType; spectator=!!res.spectator;
-    roomLabelBig.textContent=code;
-    hideCenter(welcomeOverlay);
-    showCenter(lobbyOverlay);
-    updateModeRadios();          // immediate reflect
-    if(spectator){ showPhaseOverlay("Spectating","Match in progress"); }
-  });
-};
-
-// --- Lobby controls ---
-function updateModeRadios(){
-  // visible label everyone can read
-  modeLabel.textContent = `Mode: ${matchType === 'competitive' ? 'Competitive' : 'Team'}`;
-
-  // show blue dot for everyone; only host can change
-  for(const r of modeRadios){
-    r.checked = (r.value===matchType);
-    r.onchange = null; r.onclick = null; r.disabled = false;
-    if(selfId===hostId){
-      r.onchange = ()=>{ if(r.checked) socket.emit('setMatchType',{code, matchType:r.value}); };
-    }else{
-      r.onclick = (e)=>{ e.preventDefault(); for(const rr of modeRadios){ rr.checked = (rr.value===matchType); } };
-    }
-  }
-  hostHint.textContent = (selfId===hostId) ? "You are host." : "Waiting for host…";
-}
-readyBtn.onclick = ()=>{
-  const on = readyBtn.dataset.ready!=="true";
-  readyBtn.dataset.ready = on ? "true" : "false";
-  readyBtn.textContent = on ? "Unready" : "Ready";
-  socket.emit('setReady',{code, ready:on});
-};
-startBtn.onclick = ()=> socket.emit('startMatch',{code});
-
-// --- Actions ---
-submitBtn.onclick = ()=> socket.emit('submit',{code});
-peekBtn.onclick = ()=> socket.emit('peek',{code});
-
-// --- Palette ---
-function buildPalette(){
-  paletteBar.innerHTML = "";
-  [TILES.EMPTY,TILES.WALL,TILES.WINDOW,TILES.DOOR,TILES.ROOF].forEach(t=>{
-    const b=document.createElement('button'); b.textContent=TILE_NAMES[t];
-    b.onclick=()=>{ currentTile=t; };
-    paletteBar.appendChild(b);
-  });
-}
-window.addEventListener('keydown',(e)=>{
-  const map={'1':TILES.EMPTY,'2':TILES.WALL,'3':TILES.WINDOW,'4':TILES.DOOR,'5':TILES.ROOF};
-  if(map[e.key]!=null){ currentTile=map[e.key]; }
-});
-
-// --- Canvas interactions (Build only) ---
-cvs.addEventListener('contextmenu',e=>e.preventDefault());
-cvs.addEventListener('mousedown',(e)=>{
-  if(!code || spectator) return;
-  if(phase!=="build") return;
-  const r=cvs.getBoundingClientRect();
-  const x=Math.floor((e.clientX-r.left)/cell), y=Math.floor((e.clientY-r.top)/cell);
-  if(x<0||y<0||x>=gridW||y>=gridH) return;
-  const tile=(e.button===2)? TILES.EMPTY : currentTile;
-  socket.emit('placeTile',{code,x,y,tile});
-});
 
 // --- Timers ---
 let timerInt=null;
@@ -235,7 +216,7 @@ function startTimer(){
   },200);
 }
 
-// --- Sockets ---
+// --- Socket events ---
 socket.on('lobby',(st)=>{
   pcountBig.textContent=st.players.length;
   readyBig.textContent=st.readyCount;
@@ -245,16 +226,14 @@ socket.on('lobby',(st)=>{
   startBtn.disabled = !(st.canStart && selfId===hostId);
   updateModeRadios();
 
+  // Only show lobby (center); board is hidden
   showCenter(lobbyOverlay);
   hideCenter(welcomeOverlay);
   setBoardVisible(false);
+
+  // ensure no lingering overlays when we bounce back
   hidePhaseOverlay();
   hideModal();
-});
-
-socket.on('modeUpdate',({matchType:mt})=>{
-  matchType = mt;
-  updateModeRadios();
 });
 
 socket.on('roundSetup',({gridW:W,gridH:H,blueprint:bp,board:b,matchType:mt,roundNum:rn,totalRounds:tr,peeksRemaining:pr})=>{
@@ -264,6 +243,7 @@ socket.on('roundSetup',({gridW:W,gridH:H,blueprint:bp,board:b,matchType:mt,round
   peekBtn.classList.toggle('hidden', matchType!=="team");
   buildPalette();
   resizeCanvas();
+  // Stay hidden until Build
   setBoardVisible(false);
 });
 
@@ -277,16 +257,11 @@ socket.on('phase',(ph)=>{
   if(phase==="countdown"){
     hideCenter(lobbyOverlay);
     setBoardVisible(false);
-    // precompute cell so preview matches build exactly
-    cell = computeCell(gridW, gridH);
     showPhaseOverlay("Get Ready","Starting soon", false);
   } else if(phase==="preview"){
     setBoardVisible(false);
-    // ensure preview uses the same exact pixel sizing
-    cell = computeCell(gridW, gridH);
     showPhaseOverlay("Blueprint","Memorize it!", true);
   } else if(phase==="build"){
-    resizeCanvas();
     hidePhaseOverlay();
     setBoardVisible(true);
     showPhaseOverlay("Build!","", false);
@@ -310,8 +285,8 @@ socket.on('playerFinished',({id,rank})=>{
   if(id===selfId){ showPhaseOverlay(`Finished!`,`Place: ${rank}`, false); setTimeout(()=> hidePhaseOverlay(),1200); }
 });
 
-// clean abort notice from server
-socket.on('opponentLeft',()=>{
+// NEW: tell the client cleanly when someone bails mid-round
+socket.on('opponentLeft',({id})=>{
   showPhaseOverlay("Opponent left","Round ended", false);
   setBoardVisible(false);
 });
@@ -351,7 +326,9 @@ socket.on('matchSummary',({entries})=>{
 
 // --- Init ---
 function init(){
+  // ensure results modal never shows on load
   hideModal();
+  // start at welcome
   showCenter(welcomeOverlay);
   hideCenter(lobbyOverlay);
   setBoardVisible(false);
