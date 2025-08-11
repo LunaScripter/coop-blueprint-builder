@@ -83,18 +83,3 @@ button:disabled{opacity:.5;cursor:not-allowed}
 
 /* Tiny status chip in HUD */
 #submitStatus{font-weight:700; opacity:.9}
-
-/* Overlay should never block clicks */
-.overlay{ pointer-events:none }
-
-/* Pills that sit near the board (never cover squares) */
-.overlay-pill, .overlay-pill-sub{
-  position:absolute; z-index:60; pointer-events:none;
-  background:rgba(12,16,32,.94); border:1px solid var(--line);
-  border-radius:999px; box-shadow:0 2px 10px rgba(0,0,0,.25);
-}
-.overlay-pill{ padding:8px 14px; font-weight:800 }
-.overlay-pill-sub{ padding:4px 10px; font-size:13px; opacity:.95 }
-
-/* Keep preview canvas under labels and not clickable */
-#previewCanvas{ position:absolute; z-index:40; pointer-events:none }

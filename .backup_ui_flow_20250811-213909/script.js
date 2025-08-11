@@ -10,7 +10,6 @@ let previewEndsAt=0, buildEndsAt=0, countdownEndsAt=0;
 let peekUntil=0, peeksRemaining=0;
 
 let mySubmitted=false, submittedCount=0, submittedTotal=0;
-let instantNext=false; // from server/host
 
 const TILES = { EMPTY:0, WALL:1, WINDOW:2, DOOR:3, ROOF:4 };
 const TILE_NAMES = ["Empty","Wall","Window","Door","Roof"];
@@ -38,7 +37,6 @@ const readyBtn = document.getElementById('readyBtn');
 const hostHint = document.getElementById('hostHint');
 const modeRadios = document.getElementsByName('mtype');
 const modeLabel = document.getElementById('modeLabel');
-const instantNextBox = document.getElementById('instantNextBox');
 
 const phaseOverlay = document.getElementById('phaseOverlay');
 const overlayText = document.getElementById('overlayText');
@@ -70,9 +68,10 @@ function hideCenter(el){ el.classList.add('hidden'); }
 function showPhaseOverlay(main, sub, withPreview=false){
   overlayText.textContent = main;
   overlaySub.textContent = sub||"";
-  // pills style for preview phase
-  overlayText.classList.toggle('overlay-pill', withPreview);
-  overlaySub.classList.toggle('overlay-pill-sub', withPreview);
+  overlayText.classList.remove('overlay-pill');
+  overlaySub.classList.remove('overlay-pill-sub');
+  overlayText.style.left=overlayText.style.top=""; overlayText.style.transform="";
+  overlaySub.style.left=overlaySub.style.top=""; overlaySub.style.transform="";
   previewCanvas.classList.toggle('hidden', !withPreview);
   phaseOverlay.classList.remove('hidden');
 }
@@ -89,35 +88,28 @@ function resizeCanvas(){
   cvs.style.height = cvs.height + "px";
 }
 
-function posRelativeToBoard(place){ // place: 'tl' | 'tr'
-  const boardRect = cvs.getBoundingClientRect();
-  const overlayRect = phaseOverlay.getBoundingClientRect();
-  const top = boardRect.top - overlayRect.top - 10; // just above board
-  if(place==='tl'){
-    const left = boardRect.left - overlayRect.left + 4;
-    return {left, top, transform:"translate(0,-100%)"};
-  } else {
-    const right = boardRect.right - overlayRect.left - 4; // we’ll set left then translate
-    return {left:right, top, transform:"translate(-100%,-100%)"};
-  }
-}
-function positionBlueprintUI(){
-  if(phase!=='preview') return;
-  const tl = posRelativeToBoard('tl');
-  overlayText.style.left = `${Math.round(tl.left)}px`;
-  overlayText.style.top  = `${Math.round(tl.top)}px`;
-  overlayText.style.transform = tl.transform;
-
-  const tr = posRelativeToBoard('tr');
-  overlaySub.style.left = `${Math.round(tr.left)}px`;
-  overlaySub.style.top  = `${Math.round(tr.top)}px`;
-  overlaySub.style.transform = tr.transform;
-
-  // align preview canvas exactly over the board
+function positionPreviewCanvas(){
   const boardRect = cvs.getBoundingClientRect();
   const overlayRect = phaseOverlay.getBoundingClientRect();
   previewCanvas.style.left = (boardRect.left - overlayRect.left) + "px";
   previewCanvas.style.top  = (boardRect.top  - overlayRect.top)  + "px";
+}
+
+function positionBanner(){
+  // Anchor to board top-center using CSS pixels (no offsetWidth math needed)
+  const boardRect = cvs.getBoundingClientRect();
+  const overlayRect = phaseOverlay.getBoundingClientRect();
+  const cx = boardRect.left + boardRect.width/2 - overlayRect.left;
+  let top = boardRect.top - overlayRect.top - 12;
+  if(top < 8) top = 8;
+
+  overlayText.style.left = `${Math.round(cx)}px`;
+  overlayText.style.top  = `${Math.round(top)}px`;
+  overlayText.style.transform = "translate(-50%, -100%)";
+
+  overlaySub.style.left = `${Math.round(cx)}px`;
+  overlaySub.style.top  = `${Math.round(top + 6)}px`;
+  overlaySub.style.transform = "translate(-50%, 0)";
 }
 
 function draw(){
@@ -175,8 +167,7 @@ createBtn.onclick = ()=>{
     if(!res.ok) return alert(res.error||'Failed');
     code=res.code; selfId=res.selfId; hostId=res.hostId; matchType=res.matchType; spectator=false;
     roomLabelBig.textContent=code;
-    hideCenter(welcomeOverlay); showCenter(lobbyOverlay);
-    applyLobbyState(res);
+    hideCenter(welcomeOverlay); showCenter(lobbyOverlay); updateModeRadios();
   });
 };
 joinBtn.onclick = ()=>{
@@ -185,25 +176,14 @@ joinBtn.onclick = ()=>{
     if(!res.ok) return alert(res.error||'Failed');
     code=c; selfId=res.selfId; hostId=res.hostId; matchType=res.matchType; spectator=!!res.spectator;
     roomLabelBig.textContent=code;
-    hideCenter(welcomeOverlay); showCenter(lobbyOverlay);
-    applyLobbyState(res);
+    hideCenter(welcomeOverlay); showCenter(lobbyOverlay); updateModeRadios();
     if(spectator){ showPhaseOverlay("Spectating","Match in progress"); }
   });
 };
 
-function applyLobbyState(st){
-  if(st.instantNext!=null) instantNext = !!st.instantNext;
-  if(modeLabel) modeLabel.textContent = `Mode: ${matchType === 'competitive' ? 'Competitive' : 'Team'}`;
-  if(instantNextBox){
-    instantNextBox.checked = instantNext;
-    instantNextBox.disabled = (selfId!==hostId);
-    instantNextBox.onchange = ()=> socket.emit('setInstantNext',{code, instant: instantNextBox.checked});
-  }
-  updateModeRadios();
-}
-
 // --- Lobby controls ---
 function updateModeRadios(){
+  if(modeLabel) modeLabel.textContent = `Mode: ${matchType === 'competitive' ? 'Competitive' : 'Team'}`;
   for(const r of modeRadios){
     r.checked = (r.value===matchType);
     r.onchange = null; r.onclick = null; r.disabled = false;
@@ -224,7 +204,7 @@ readyBtn.onclick = ()=>{
 };
 startBtn.onclick = ()=> socket.emit('startMatch',{code});
 
-// --- Submit toggle ---
+// --- Submit toggle (locks edits while submitted) ---
 submitBtn.onclick = ()=>{
   if(!code || phase!=="build") return;
   const next = !mySubmitted;
@@ -249,11 +229,12 @@ window.addEventListener('keydown',(e)=>{
   if(map[e.key]!=null){ currentTile=map[e.key]; }
 });
 
-// --- Canvas interactions ---
+// --- Canvas interactions (block when submitted) ---
 cvs.addEventListener('contextmenu',e=>e.preventDefault());
 cvs.addEventListener('mousedown',(e)=>{
   if(!code || spectator) return;
-  if(phase!=="build" || mySubmitted) return;
+  if(phase!=="build") return;
+  if(mySubmitted) return; // lock while submitted
   const r=cvs.getBoundingClientRect();
   const x=Math.floor((e.clientX-r.left)/cell), y=Math.floor((e.clientY-r.top)/cell);
   if(x<0||y<0||x>=gridW||y>=gridH) return;
@@ -282,7 +263,6 @@ function startTimer(){
     roundLabel.textContent=(roundNum? `Round ${roundNum}/${totalRounds}` : "Round —");
     if(phase==="countdown") overlaySub.textContent = `Starting in ${s}s`;
     if(phase==="preview")   overlaySub.textContent = `Preview ends in ${s}s`;
-    if(phase==="preview")   positionBlueprintUI();
     draw();
   },200);
 }
@@ -293,23 +273,19 @@ socket.on('lobby',(st)=>{
   readyBig.textContent=st.readyCount;
   hostId=st.hostId; matchType=st.matchType;
   roundNum=st.roundNum; totalRounds=st.totalRounds;
-  submittedTotal = st.players.length;
+
   startBtn.disabled = !(st.canStart && selfId===hostId);
-  instantNext = !!st.instantNext;
-  applyLobbyState(st);
+  updateModeRadios();
 
   showCenter(lobbyOverlay); hideCenter(welcomeOverlay);
   setBoardVisible(false); hidePhaseOverlay(); hideModal();
 
+  submittedTotal = st.players.length;
   submittedCount = 0; mySubmitted=false; updateSubmitUI();
 });
 
 socket.on('modeUpdate',({matchType:mt})=>{
   matchType = mt; updateModeRadios();
-});
-socket.on('instantNextUpdate',({instant})=>{
-  instantNext = !!instant;
-  if(instantNextBox){ instantNextBox.checked = instantNext; }
 });
 
 socket.on('roundSetup',({gridW:W,gridH:H,blueprint:bp,board:b,matchType:mt,roundNum:rn,totalRounds:tr,peeksRemaining:pr})=>{
@@ -340,26 +316,26 @@ socket.on('phase',(ph)=>{
   } else if(phase==="preview"){
     resizeCanvas(); setBoardVisible(true);
     bottomBar.classList.add('hidden'); topHUD.classList.add('hidden');
-    showPhaseOverlay("BLUEPRINT!","Preview ends in …", true);
-    drawPreviewCanvas();
-    positionBlueprintUI();
+    showPhaseOverlay("BLUEPRINT!","Memorize it!", true);
+    overlayText.classList.add('overlay-pill');
+    overlaySub.classList.add('overlay-pill-sub');
+    drawPreviewCanvas(); positionPreviewCanvas();
+    requestAnimationFrame(positionBanner);
   } else if(phase==="build"){
     resizeCanvas();
     hidePhaseOverlay(); setBoardVisible(true);
     bottomBar.classList.remove('hidden'); topHUD.classList.remove('hidden');
     showPhaseOverlay("Build!","", false);
-    setTimeout(()=> hidePhaseOverlay(), 350);
+    setTimeout(()=> hidePhaseOverlay(), 400);
   }
   startTimer();
 });
 
 window.addEventListener('resize', ()=>{
   if(!gridW || !gridH) return;
-  resizeCanvas();
   if(phase==="preview"){
-    drawPreviewCanvas();
-    positionBlueprintUI();
-  }
+    resizeCanvas(); drawPreviewCanvas(); positionPreviewCanvas(); requestAnimationFrame(positionBanner);
+  } else { resizeCanvas(); }
 });
 
 socket.on('peekWindow',({until,peeksRemaining:pr})=>{
@@ -374,7 +350,7 @@ socket.on('gridUpdate',({owner,x,y,tile})=>{
 });
 
 socket.on('playerFinished',({id,rank})=>{
-  if(id===selfId){ showPhaseOverlay(`Finished!`,`Place: ${rank}`, false); setTimeout(()=> hidePhaseOverlay(),900); }
+  if(id===selfId){ showPhaseOverlay(`Finished!`,`Place: ${rank}`, false); setTimeout(()=> hidePhaseOverlay(),1000); }
 });
 
 socket.on('opponentLeft',()=>{
@@ -382,7 +358,7 @@ socket.on('opponentLeft',()=>{
   setBoardVisible(false);
 });
 
-// submit states
+// submit states + instant next (client-side UI only; server drives advance)
 socket.on('submitState',({id, submitted, count, total})=>{
   if(total!=null) submittedTotal = total;
   if(count!=null) submittedCount = count;
@@ -390,20 +366,21 @@ socket.on('submitState',({id, submitted, count, total})=>{
   updateSubmitUI();
 });
 
-// results
+// Fast results: skip modal if server flags fast=true
 socket.on('roundResults',({roundNum:rn,entries,fast})=>{
-  scoreList.innerHTML="";
-  resultTitle.textContent=`Round ${rn} Results`;
-  entries.forEach((e,i)=>{
-    const me=(e.id===selfId)?" (You)":"";
-    const rank = e.rank?`#${e.rank}`:`#${i+1}`;
-    const li=document.createElement('li');
-    li.innerHTML=`<span>${rank} ${e.id.slice(0,5)}${me}</span><span>${e.total!=null? e.total+' pts' : (e.accuracy? e.accuracy+'%':'' )}</span>`;
-    scoreList.appendChild(li);
-  });
-  if(!fast){ showModal(); }
+  if(!fast){
+    scoreList.innerHTML="";
+    resultTitle.textContent=`Round ${rn} Results`;
+    entries.forEach((e,i)=>{
+      const me=(e.id===selfId)?" (You)":"";
+      const rank = e.rank ? `#${e.rank}` : `#${i+1}`;
+      const li=document.createElement('li');
+      li.innerHTML=`<span>${rank} ${e.id.slice(0,5)}${me}</span><span>${e.total!=null? e.total+' pts' : (e.accuracy? e.accuracy+'%':'' )}</span>`;
+      scoreList.appendChild(li);
+    });
+    showModal();
+  }
 });
-closeScore.onclick=()=> hideModal();
 
 socket.on('matchSummary',({entries})=>{
   scoreList.innerHTML="";

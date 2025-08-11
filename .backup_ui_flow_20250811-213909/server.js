@@ -82,8 +82,6 @@ function newRoom(){
     spectators: new Set(),
     ready: new Set(),
     matchType: "competitive",
-    instantNext: false,     // NEW: host toggle
-
     phase: "lobby",
     totalRounds: 3,
     roundNum: 0,
@@ -123,16 +121,9 @@ function canStart(r){
 
 function broadcastLobby(r){
   io.to(r.code).emit("lobby", {
-    code: r.code,
-    hostId: r.hostId,
-    matchType: r.matchType,
-    instantNext: r.instantNext,
-    players: Array.from(r.players),
-    readyCount: r.ready.size,
-    canStart: canStart(r),
-    phase: r.phase,
-    roundNum: r.roundNum,
-    totalRounds: r.totalRounds
+    code: r.code, hostId: r.hostId, matchType: r.matchType,
+    players: Array.from(r.players), readyCount: r.ready.size,
+    canStart: canStart(r), phase: r.phase, roundNum: r.roundNum, totalRounds: r.totalRounds
   });
 }
 
@@ -232,12 +223,11 @@ function finishRound(r, {fast} = {fast:false}){
     results.entries.push({ team:true, accuracy, wrong, pts:final, total:final });
   }
 
-  // Always emit results (client shows modal unless fast)
   io.to(r.code).emit("roundResults", results);
 
   if(r.roundNum < r.totalRounds){
     if(fast){
-      // immediate next: straight to next preview (no countdown)
+      // immediate next: no results delay, no 3s countdown
       setupRound(r);
       for(const id of r.players){
         const sock = io.sockets.sockets.get(id);
@@ -250,7 +240,7 @@ function finishRound(r, {fast} = {fast:false}){
       }
       beginPreview(r);
     } else {
-      // short pause, then normal countdown
+      // normal flow: brief results pause then next with countdown
       r.phase = "results";
       r.timers.results = setTimeout(()=>{
         setupRound(r);
@@ -264,7 +254,7 @@ function finishRound(r, {fast} = {fast:false}){
           }
         }
         beginCountdown(r);
-      }, 1200);
+      }, 1200); // shorter pause
     }
   } else {
     const summary = [];
@@ -293,7 +283,7 @@ io.on("connection",(socket)=>{
     r.players.add(socket.id);
     joined = r.code;
     socket.join(r.code);
-    cb?.({ ok:true, code:r.code, selfId:socket.id, hostId:r.hostId, matchType:r.matchType, instantNext:r.instantNext, phase:r.phase, roundNum:r.roundNum, totalRounds:r.totalRounds });
+    cb?.({ ok:true, code:r.code, selfId:socket.id, hostId:r.hostId, matchType:r.matchType, phase:r.phase, roundNum:r.roundNum, totalRounds:r.totalRounds });
     broadcastLobby(r);
   });
 
@@ -303,9 +293,8 @@ io.on("connection",(socket)=>{
     socket.join(code); joined=code;
     if(r.phase!=="lobby"){ r.spectators.add(socket.id); }
     else { r.players.add(socket.id); }
-    cb?.({ ok:true, code, selfId:socket.id, hostId:r.hostId, matchType:r.matchType, instantNext:r.instantNext, phase:r.phase, roundNum:r.roundNum, totalRounds:r.totalRounds, spectator: r.phase!=="lobby" });
+    cb?.({ ok:true, code, selfId:socket.id, hostId:r.hostId, matchType:r.matchType, phase:r.phase, roundNum:r.roundNum, totalRounds:r.totalRounds, spectator: r.phase!=="lobby" });
     socket.emit("modeUpdate",{ matchType:r.matchType });
-    socket.emit("instantNextUpdate",{ instant:r.instantNext });
     broadcastLobby(r);
   });
 
@@ -316,16 +305,6 @@ io.on("connection",(socket)=>{
     if(matchType!=="competitive" && matchType!=="team") return;
     r.matchType = matchType;
     io.to(r.code).emit("modeUpdate",{ matchType:r.matchType });
-    broadcastLobby(r);
-  });
-
-  // NEW: host toggle for instant next
-  socket.on("setInstantNext",({code, instant})=>{
-    const r = rooms[code]; if(!r) return;
-    if(socket.id!==r.hostId) return;
-    if(r.phase!=="lobby") return;
-    r.instantNext = !!instant;
-    io.to(r.code).emit("instantNextUpdate",{ instant:r.instantNext });
     broadcastLobby(r);
   });
 
@@ -368,7 +347,7 @@ io.on("connection",(socket)=>{
   socket.on("placeTile",({code,x,y,tile})=>{
     const r = rooms[code]; if(!r) return;
     if(r.phase!=="build") return;
-    if(r.submitted.has(socket.id)) return; // lock edits while submitted
+    if(r.submitted.has(socket.id)) return; // ignore edits while submitted
     const key = `last:${socket.id}`;
     const now = Date.now();
     socket.data[key] = socket.data[key]||0;
@@ -398,7 +377,7 @@ io.on("connection",(socket)=>{
     }
   });
 
-  // Submit ⇄ Unsubmit; if everyone submitted and competitive, finish based on instantNext
+  // Submit ⇄ Unsubmit; end immediately when all submitted (competitive only)
   socket.on("submitToggle",({code, submit})=>{
     const r = rooms[code]; if(!r) return;
     if(r.phase!=="build") return;
@@ -406,10 +385,11 @@ io.on("connection",(socket)=>{
     if(r.matchType!=="competitive") return;
 
     if(submit){ r.submitted.add(socket.id); } else { r.submitted.delete(socket.id); }
+
     io.to(r.code).emit("submitState",{ id:socket.id, submitted:!!submit, count:r.submitted.size, total:r.players.size });
 
     if(r.submitted.size === r.players.size && r.players.size >= 2){
-      finishRound(r, {fast: r.instantNext});
+      finishRound(r, {fast:true}); // immediate next
     }
   });
 
