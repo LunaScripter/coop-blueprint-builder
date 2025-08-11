@@ -8,26 +8,11 @@
 </head>
 <body>
   <div id="app">
-    <aside id="left">
-      <h1>Co-op Builder</h1>
-      <div id="sessionCard" class="card">
-        <button id="create">Create Room</button>
-        <div class="join">
-          <input id="code" placeholder="Room code (AB12CD)" />
-          <button id="join">Join</button>
-        </div>
-      </div>
-      <div class="card">
-        <div class="row"><span>Room:</span><strong id="roomLabel">—</strong></div>
-        <div class="row"><span>Players:</span><strong id="pcount">0</strong></div>
-        <div class="row"><span>Ready:</span><strong id="readyCount">0</strong></div>
-        <div class="row"><span>Round:</span><strong id="roundInfo">—</strong></div>
-      </div>
-      <p class="tip">Tip: After you join, controls move to the middle.</p>
-    </aside>
+    <!-- Left column removed from flow (we’ll use center panels instead) -->
+    <aside id="left" class="hidden"></aside>
 
     <main>
-      <!-- Top HUD: only in Build -->
+      <!-- Top HUD (Build only) -->
       <div id="topHUD" class="hud-top hidden">
         <div id="roundLabel">Round —</div>
         <div id="timerLabel">—s</div>
@@ -36,21 +21,34 @@
       <!-- Game board (hidden until Build) -->
       <canvas id="grid" class="board hidden" width="880" height="720"></canvas>
 
-      <!-- Bottom bar (only in Build) -->
+      <!-- Bottom bar (Build only) -->
       <div id="bottomBar" class="hud-bottom hidden">
         <div id="paletteBar" class="palette-bar"></div>
-        <div id="actionsBar" class="actions-bar">
+        <div class="actions-bar">
           <button id="peekBtn" class="hidden">Peek <span id="peekLeft">x0</span></button>
           <button id="submitBtn" class="hidden">Submit</button>
         </div>
       </div>
 
-      <!-- Centered Lobby Overlay -->
+      <!-- Welcome Overlay (center) -->
+      <div id="welcomeOverlay" class="center-overlay">
+        <div class="panel large">
+          <h2>Co-op Builder</h2>
+          <div class="row center gap wrap">
+            <button id="createBtn">Create Room</button>
+            <input id="codeInput" placeholder="Room code (AB12CD)" />
+            <button id="joinBtn">Join</button>
+          </div>
+          <div class="hint">Create a room or enter a code from a friend.</div>
+        </div>
+      </div>
+
+      <!-- Lobby Overlay (center after join/create) -->
       <div id="lobbyOverlay" class="center-overlay hidden">
         <div class="panel large">
           <h2>Room <span id="roomLabelBig">—</span></h2>
-          <div id="playersLine" class="sub">Players: <span id="pcountBig">0</span> · Ready: <span id="readyBig">0</span></div>
-          <div class="row center">
+          <div class="sub">Players: <span id="pcountBig">0</span> · Ready: <span id="readyBig">0</span></div>
+          <div class="row center gap">
             <label><input type="radio" name="mtype" value="competitive" checked> Competitive</label>
             <label><input type="radio" name="mtype" value="team"> Team</label>
           </div>
@@ -62,15 +60,15 @@
         </div>
       </div>
 
-      <!-- Phase overlay: Countdown / Blueprint (now includes preview canvas) / Build! -->
+      <!-- Phase overlay: Countdown / Blueprint (with preview canvas) / Build! -->
       <div id="phaseOverlay" class="overlay hidden">
         <div id="overlayText">Blueprint</div>
         <div id="overlaySub"></div>
         <canvas id="previewCanvas" width="1" height="1" class="hidden"></canvas>
       </div>
 
-      <!-- Results modal -->
-      <div id="scorePanel" class="modal hidden">
+      <!-- Results modal (hidden by default; no flicker) -->
+      <div id="scorePanel" class="modal">
         <div class="panel">
           <h3 id="resultTitle">Round Results</h3>
           <ul id="scoreList"></ul>
