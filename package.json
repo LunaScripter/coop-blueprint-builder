@@ -1,12 +1,10 @@
 {
   "name": "coop-blueprint-builder",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
   "main": "server.js",
   "license": "MIT",
-  "scripts": {
-    "start": "node server.js"
-  },
+  "scripts": { "start": "node server.js" },
   "dependencies": {
     "express": "^4.19.2",
     "nanoid": "^5.0.7",
