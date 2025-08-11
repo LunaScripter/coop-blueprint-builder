@@ -31,12 +31,10 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .row{display:flex;justify-content:center;align-items:center;margin:6px 0;gap:10px}
 
 /* Phase overlay (countdown/preview/build) */
-.overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:rgba(0,0,0,0.35);z-index:10;pointer-events:auto}
+.overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:rgba(0,0,0,0.35)}
 #overlayText{font-size:42px;font-weight:700;margin-bottom:6px}
 #overlaySub{font-size:14px;opacity:.9;margin-bottom:10px}
-
-/* The preview canvas sits PRECISELY over #grid, same pixels, no scaling */
-#previewCanvas{position:absolute;left:0;top:0;background:#0b0f1d;border:1px solid #334;border-radius:12px;image-rendering:pixelated}
+#previewCanvas{background:#0b0f1d;border:1px solid #334;border-radius:12px}
 
 /* Results modal — no flicker on load */
 .modal{position:absolute;inset:0;display:none;align-items:center;justify-content:center;backdrop-filter:blur(3px)}
