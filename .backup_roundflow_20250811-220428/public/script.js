@@ -57,7 +57,9 @@ const joinBtn = document.getElementById('joinBtn');
 const codeInput = document.getElementById('codeInput');
 
 // --- Utils ---
+const clamp = (v,min,max)=> Math.max(min, Math.min(max, v));
 const computeCell = (w,h)=> Math.floor(Math.min(880/w, 720/h, 40));
+
 function setHidden(el, hidden){ el.classList.toggle('hidden', !!hidden); }
 function show(el){ setHidden(el, false); } function hide(el){ setHidden(el, true); }
 
@@ -124,13 +126,11 @@ function drawPreview(){
   for(let y=0;y<=gridH;y++){ pctx.beginPath(); pctx.moveTo(0,y*px); pctx.lineTo(gridW*px,y*px); pctx.stroke(); }
 }
 
-// --- Phase helpers ---
+// --- Phase helpers (simple, predictable) ---
 function enterCountdown(){
   phase = PHASE.COUNTDOWN;
   show(boardWrap); hide(bottomBar); hide(topHUD);
-  show(bpLabel); show(bpTimer);
-  bpLabel.textContent = "GET READY";
-  hide(previewCanvas); // no blueprint during countdown
+  hide(bpLabel); hide(bpTimer); hide(previewCanvas);
 }
 function enterPreview(){
   phase = PHASE.PREVIEW;
@@ -152,10 +152,9 @@ function updateHUD(){
   if(phase===PHASE.PREVIEW)   ms = previewEndsAt   - now;
   if(phase===PHASE.BUILD)     ms = buildEndsAt     - now;
   const s = Math.max(0, Math.ceil(ms/1000));
-  timerLabel.textContent = (phase===PHASE.BUILD) ? `${s}s` : "—s";
+  if(phase===PHASE.BUILD) timerLabel.textContent = `${s}s`; else timerLabel.textContent = "—s";
   roundLabel.textContent = (roundNum? `Round ${roundNum}/${totalRounds}` : "Round —");
-  if(phase===PHASE.COUNTDOWN) bpTimer.textContent = `Starting: ${s}s`;
-  if(phase===PHASE.PREVIEW)   bpTimer.textContent = `Preview: ${s}s`;
+  if(phase===PHASE.PREVIEW) bpTimer.textContent = `Preview: ${s}s`;
 }
 
 let hudInt = null;
@@ -173,11 +172,13 @@ function buildPalette(){
     paletteBar.appendChild(b);
   });
 }
+
 window.addEventListener('keydown',(e)=>{
   if(mySubmitted) return;
   const map={'1':TILES.EMPTY,'2':TILES.WALL,'3':TILES.WINDOW,'4':TILES.DOOR,'5':TILES.ROOF};
   if(map[e.key]!=null){ currentTile=map[e.key]; }
 });
+
 cvs.addEventListener('contextmenu', e=> e.preventDefault());
 cvs.addEventListener('mousedown', (e)=>{
   if(!code || spectator) return;
@@ -190,14 +191,16 @@ cvs.addEventListener('mousedown', (e)=>{
   socket.emit('placeTile',{ code, x, y, tile });
 });
 
-// Buttons
+// --- Buttons ---
 submitBtn.onclick = ()=>{
   if(!code || phase!==PHASE.BUILD) return;
-  socket.emit('submitToggle',{ code, submit: !mySubmitted });
+  const next = !mySubmitted;
+  socket.emit('submitToggle',{ code, submit: next });
 };
+
 peekBtn.onclick = ()=> socket.emit('peek',{ code });
 
-// Lobby actions
+// --- Lobby actions ---
 createBtn.onclick = ()=>{
   socket.emit('createRoom',(res)=>{
     if(!res.ok) return alert(res.error||'Failed');
@@ -221,7 +224,7 @@ readyBtn.onclick = ()=>{
 };
 startBtn.onclick = ()=> socket.emit('startMatch',{ code });
 
-// Mode radios
+// --- Mode radios (host decides; everyone sees) ---
 function updateModeRadios(){
   for(const r of modeRadios){
     r.checked = (r.value===matchType);
@@ -235,7 +238,7 @@ function updateModeRadios(){
   hostHint.textContent = (selfId===hostId) ? "You are host." : "Waiting for host…";
 }
 
-// Sockets
+// --- Socket events ---
 socket.on('lobby',(st)=>{
   pcountBig.textContent = st.players.length;
   readyBig.textContent = st.readyCount;
@@ -265,10 +268,6 @@ socket.on('roundSetup',({gridW:W,gridH:H,blueprint:bp,board:b,matchType:mt,round
   peeksRemaining=pr||0; peekLeft.textContent=`x${peeksRemaining}`;
   mySubmitted=false; submittedCount=0;
 
-  // Submit button visible in BOTH modes now
-  submitBtn.classList.remove('hidden');
-  peekBtn.classList.toggle('hidden', matchType!=="team");
-
   buildPalette();
   resizeBoard();
   setBoardVisible(true);
@@ -282,20 +281,14 @@ socket.on('phase',(ph)=>{
   if(ph.countdownEndsAt) countdownEndsAt=ph.countdownEndsAt;
   if(ph.previewEndsAt)   previewEndsAt=ph.previewEndsAt;
   if(ph.buildEndsAt)     buildEndsAt=ph.buildEndsAt;
-  const prev = phase;
   phase = ph.phase;
 
   if(phase===PHASE.COUNTDOWN) enterCountdown();
   if(phase===PHASE.PREVIEW)   enterPreview();
   if(phase===PHASE.BUILD)     enterBuild();
 
-  // Auto-hide results modal as soon as next phase arrives
-  if(prev===PHASE.RESULTS && (phase===PHASE.COUNTDOWN || phase===PHASE.PREVIEW || phase===PHASE.BUILD)){
-    hide(scorePanel);
-  }
-
   startHudTimer();
-  resizeBoard();
+  resizeBoard(); // keep 1:1 on any grid change
 });
 
 socket.on('peekWindow',({until,peeksRemaining:pr})=>{
@@ -305,7 +298,7 @@ socket.on('peekWindow',({until,peeksRemaining:pr})=>{
 
 socket.on('gridUpdate',({owner,x,y,tile})=>{
   if(!board) return;
-  if(matchType==="competitive" && owner!==selfId) return;
+  if(matchType==="competitive" && owner!==selfId) return; // only draw my own board in comp
   if(y>=0 && y<board.length && x>=0 && x<board[0].length){
     board[y][x]=tile; drawBoard();
   }
@@ -322,11 +315,10 @@ socket.on('submitState',({id, submitted, count, total})=>{
 
 socket.on('opponentLeft',({id})=>{
   alert("Opponent left. Match ended.");
-  // server moves to lobby
+  // server will push lobby() right after abort
 });
 
 socket.on('roundResults',({roundNum:rn,entries})=>{
-  // Only sent on timer-end rounds (not all-submitted)
   scoreList.innerHTML="";
   resultTitle.textContent=`Round ${rn} Results`;
   entries.forEach((e,i)=>{
@@ -339,6 +331,7 @@ socket.on('roundResults',({roundNum:rn,entries})=>{
   });
   show(scorePanel);
 });
+
 socket.on('matchSummary',({entries})=>{
   scoreList.innerHTML="";
   resultTitle.textContent=`Match Summary`;
@@ -350,9 +343,10 @@ socket.on('matchSummary',({entries})=>{
   });
   show(scorePanel);
 });
+
 closeScore.onclick = ()=> hide(scorePanel);
 
-// Init
+// --- Init ---
 function init(){
   hide(scorePanel);
   show(welcomeOverlay);

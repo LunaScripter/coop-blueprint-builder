@@ -9,16 +9,10 @@ const io = new Server(httpServer, { cors: { origin: "*" } });
 app.use(express.static("public"));
 
 const PORT = process.env.PORT || 3000;
+const nanoid = customAlphabet("ABCDEFGHJKMNPQRSTUVWXYZ23456789", 6);
 
 const PHASE = { LOBBY:"lobby", COUNTDOWN:"countdown", PREVIEW:"preview", BUILD:"build", RESULTS:"results" };
 const TILES = { EMPTY:0, WALL:1, WINDOW:2, DOOR:3, ROOF:4 };
-
-const nanoid = customAlphabet("ABCDEFGHJKMNPQRSTUVWXYZ23456789", 6);
-
-// Timings (ms)
-const LOBBY_COUNTDOWN_MS = 2000;
-const INTER_COUNTDOWN_MS = 1200;   // short "Get Ready" between rounds
-const RESULTS_MS         = 800;    // only when timer ends (not all-submitted)
 
 // Round configs
 const COMP_ROUNDS = [
@@ -28,11 +22,12 @@ const COMP_ROUNDS = [
 ];
 const TEAM_ROUND =  { gridW:28, gridH:20, previewSec:6, buildSec:120, peekTokens:2, peekDurSec:2, editCap:1400 };
 
-// Utils
+// Helpers
 const rnd = (a,b)=>Math.floor(Math.random()*(b-a+1))+a;
 const clamp = (v,min,max)=> Math.max(min, Math.min(max, v));
-function makeGrid(w,h,fill=TILES.EMPTY){ return Array.from({length:h},()=>Array(w).fill(fill)); }
 
+function makeGrid(w,h,fill=TILES.EMPTY){ return Array.from({length:h},()=>Array(w).fill(fill)); }
+/** simple façade blueprint */
 function makeFacadeBlueprint(w,h){
   const g = makeGrid(w,h,TILES.EMPTY);
   const baseY = h - 3;
@@ -82,7 +77,7 @@ function scoreAccuracy(board, bp){
   return { accuracy, wrong };
 }
 
-// Simple token bucket to rate-limit placeTile
+// Token-bucket per-socket rate limit for placeTile
 function allowPlace(socket, cost=1, rate=10, burst=18){
   const now = Date.now();
   const key = "rate";
@@ -94,7 +89,7 @@ function allowPlace(socket, cost=1, rate=10, burst=18){
   return false;
 }
 
-// --- Room state ---
+// --- Rooms state ---
 const rooms = {};
 function newRoom(){
   const code = nanoid();
@@ -118,8 +113,6 @@ function newRoom(){
     finished: [],
     edits: {},
     editCap: 400,
-
-    // shared
     submitted: new Set(),
 
     // team
@@ -139,7 +132,7 @@ function newRoom(){
   return rooms[code];
 }
 
-// --- Helpers ---
+// --- Broadcast helpers ---
 function canStart(r){
   const n = r.players.size;
   if(r.phase!==PHASE.LOBBY) return false;
@@ -178,19 +171,7 @@ function abortToLobby(r){
   broadcastLobby(r);
 }
 
-function sendRoundSetup(r){
-  for(const id of r.players){
-    const sock = io.sockets.sockets.get(id);
-    if(!sock) continue;
-    if(r.matchType==="competitive"){
-      sock.emit("roundSetup", { gridW:r.gridW, gridH:r.gridH, blueprint:r.blueprint, board:r.boardsByPlayer[id], matchType:r.matchType, roundNum:r.roundNum, totalRounds:r.totalRounds });
-    } else {
-      sock.emit("roundSetup", { gridW:r.gridW, gridH:r.gridH, blueprint:r.blueprint, board:r.teamBoard, matchType:r.matchType, roundNum:r.roundNum, totalRounds:r.totalRounds, peeksRemaining:r.peeksRemaining });
-    }
-  }
-}
-
-// --- Lifecycle ---
+// --- Round lifecycle ---
 function setupRound(r){
   r.roundNum += 1;
   r.submitted.clear();
@@ -213,16 +194,26 @@ function setupRound(r){
   }
 }
 
-function beginCountdown(r, ms){
+function beginCountdown(r){
   r.phase = PHASE.COUNTDOWN;
-  r.countdownEndsAt = Date.now() + ms;
+  r.countdownEndsAt = Date.now() + 3000;
   io.to(r.code).emit("phase", { phase:r.phase, roundNum:r.roundNum, totalRounds:r.totalRounds, countdownEndsAt:r.countdownEndsAt, matchType:r.matchType });
-  r.timers.countdown = setTimeout(()=> beginPreview(r), ms);
+  r.timers.countdown = setTimeout(()=> beginPreview(r), 3000);
 }
 function beginPreview(r){
   r.phase = PHASE.PREVIEW;
   const sec = (r.matchType==="competitive" ? (COMP_ROUNDS[r.roundNum-1]?.previewSec || 4) : TEAM_ROUND.previewSec);
   r.previewEndsAt = Date.now() + sec*1000;
+  // per-player send board
+  for(const id of r.players){
+    const sock = io.sockets.sockets.get(id);
+    if(!sock) continue;
+    if(r.matchType==="competitive"){
+      sock.emit("roundSetup", { gridW:r.gridW, gridH:r.gridH, blueprint:r.blueprint, board:r.boardsByPlayer[id], matchType:r.matchType, roundNum:r.roundNum, totalRounds:r.totalRounds });
+    } else {
+      sock.emit("roundSetup", { gridW:r.gridW, gridH:r.gridH, blueprint:r.blueprint, board:r.teamBoard, matchType:r.matchType, roundNum:r.roundNum, totalRounds:r.totalRounds, peeksRemaining:r.peeksRemaining });
+    }
+  }
   io.to(r.code).emit("phase", { phase:r.phase, roundNum:r.roundNum, totalRounds:r.totalRounds, previewEndsAt:r.previewEndsAt, matchType:r.matchType, peeksRemaining:r.peeksRemaining||0 });
   r.timers.preview = setTimeout(()=> beginBuild(r), sec*1000);
 }
@@ -232,10 +223,12 @@ function beginBuild(r){
   r.buildEndsAt = Date.now() + sec*1000;
   io.to(r.code).emit("phase", { phase:r.phase, roundNum:r.roundNum, totalRounds:r.totalRounds, buildEndsAt:r.buildEndsAt, matchType:r.matchType, peeksRemaining:r.peeksRemaining||0 });
   io.to(r.code).emit("submitState",{ count:r.submitted.size, total:r.players.size });
-  r.timers.build = setTimeout(()=> finishRound(r, { reason:"timer" }), sec*1000);
+  r.timers.build = setTimeout(()=> finishRound(r), sec*1000);
 }
+function finishRound(r){
+  clearTimers(r);
+  r.phase = PHASE.RESULTS;
 
-function computeResults(r){
   const results = { roundNum:r.roundNum, entries:[] };
   if(r.matchType==="competitive"){
     const ranks = {};
@@ -251,6 +244,7 @@ function computeResults(r){
       r.points[id] = (r.points[id]||0) + pts;
       results.entries.push({ id, rank:ranks[id]||null, accuracy, wrong, pts, total:r.points[id] });
     }
+    // stable ordering: by rank then pts
     results.entries.sort((a,b)=>{
       if(a.rank && b.rank) return a.rank-b.rank;
       if(a.rank && !b.rank) return -1;
@@ -265,45 +259,21 @@ function computeResults(r){
     for(const id of r.players){ r.points[id] = (r.points[id]||0) + final; }
     results.entries.push({ team:true, accuracy, wrong, pts:final, total:final });
   }
-  return results;
-}
 
-function finishRound(r, { reason } = { reason:"timer" }){
-  clearTimers(r);
-  r.phase = PHASE.RESULTS;
+  io.to(r.code).emit("roundResults", results);
 
-  const results = computeResults(r);
-
-  if(reason === "all_submitted"){
-    // skip results screen entirely
-    if(r.roundNum < r.totalRounds){
+  // Short, consistent pause, then next preview or summary
+  if(r.roundNum < r.totalRounds){
+    r.timers.results = setTimeout(()=>{
       setupRound(r);
-      sendRoundSetup(r);               // so clients size correctly during Get Ready
-      beginCountdown(r, INTER_COUNTDOWN_MS);
-    } else {
-      // show final summary, then lobby
-      const summary = [];
-      for(const id of r.players){ summary.push({ id, total:r.points[id]||0 }); }
-      summary.sort((a,b)=> b.total-a.total);
-      io.to(r.code).emit("matchSummary", { entries: summary });
-      abortToLobby(r);
-    }
+      beginPreview(r);
+    }, 1100);
   } else {
-    // timer end → show results briefly
-    io.to(r.code).emit("roundResults", results);
-    if(r.roundNum < r.totalRounds){
-      r.timers.results = setTimeout(()=>{
-        setupRound(r);
-        sendRoundSetup(r);
-        beginCountdown(r, INTER_COUNTDOWN_MS);
-      }, RESULTS_MS);
-    } else {
-      const summary = [];
-      for(const id of r.players){ summary.push({ id, total:r.points[id]||0 }); }
-      summary.sort((a,b)=> b.total-a.total);
-      io.to(r.code).emit("matchSummary", { entries: summary });
-      abortToLobby(r);
-    }
+    const summary = [];
+    for(const id of r.players){ summary.push({ id, total:r.points[id]||0 }); }
+    summary.sort((a,b)=> b.total-a.total);
+    io.to(r.code).emit("matchSummary", { entries: summary });
+    abortToLobby(r);
   }
 }
 
@@ -355,8 +325,7 @@ io.on("connection",(socket)=>{
     r.points = {};
     r.roundNum = 0;
     setupRound(r);
-    sendRoundSetup(r);
-    beginCountdown(r, LOBBY_COUNTDOWN_MS);
+    beginCountdown(r);
   });
 
   socket.on("peek",({code})=>{
@@ -374,41 +343,44 @@ io.on("connection",(socket)=>{
     if(r.phase!==PHASE.BUILD) return;
     if(!allowPlace(socket)) return;
 
+    // sanitize
     x = clamp(x|0, 0, (r.gridW||1)-1);
     y = clamp(y|0, 0, (r.gridH||1)-1);
     tile = [0,1,2,3,4].includes(tile) ? tile : TILES.EMPTY;
 
-    if(!r.players.has(socket.id)) return;
-    if(r.submitted.has(socket.id)) return; // lock while submitted
-
     if(r.matchType==="competitive"){
+      if(!r.players.has(socket.id)) return;
+      if(r.submitted.has(socket.id)) return; // lock while submitted
       const b = r.boardsByPlayer[socket.id]; if(!b) return;
-      if((r.edits[socket.id]||0)>=r.editCap) return;
+      if(r.edits[socket.id]>=r.editCap) return;
       b[y][x] = tile; r.edits[socket.id] = (r.edits[socket.id]||0)+1;
       io.to(r.code).emit("gridUpdate",{ owner:socket.id, x,y,tile });
 
+      // rank on perfect match (optional speed finish)
       if(!r.finished.find(f=>f.id===socket.id) && boardsEqual(b, r.blueprint)){
         const rank = r.finished.length + 1;
         r.finished.push({ id:socket.id, rank, finishedAt:Date.now() });
         io.to(r.code).emit("playerFinished",{ id:socket.id, rank });
       }
     } else {
+      if(!r.players.has(socket.id)) return;
       r.teamBoard[y][x] = tile;
       io.to(r.code).emit("gridUpdate",{ x,y,tile });
     }
   });
 
-  // Submit ⇄ Unsubmit for BOTH modes; all-submitted ends round immediately (skip results)
   socket.on("submitToggle",({code, submit})=>{
     const r = rooms[code]; if(!r) return;
     if(r.phase!==PHASE.BUILD) return;
     if(!r.players.has(socket.id)) return;
+    if(r.matchType!=="competitive") return;
 
     if(submit){ r.submitted.add(socket.id); } else { r.submitted.delete(socket.id); }
     io.to(r.code).emit("submitState",{ id:socket.id, submitted:!!submit, count:r.submitted.size, total:r.players.size });
 
+    // when everyone has locked in, show results now
     if(r.submitted.size === r.players.size && r.players.size >= 2){
-      finishRound(r, { reason:"all_submitted" });
+      finishRound(r);
     }
   });
 
@@ -425,10 +397,12 @@ io.on("connection",(socket)=>{
 
     if(r.phase!==PHASE.LOBBY){
       io.to(r.code).emit("opponentLeft",{ id:leftId });
+      // If fewer than 2 players remain, abort match entirely
       if(r.players.size < 2){
         abortToLobby(r);
         return;
       } else {
+        // keep match running, update submit counters
         io.to(r.code).emit("submitState",{ count:r.submitted.size, total:r.players.size });
       }
     }
