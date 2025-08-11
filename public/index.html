@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Co-op Blueprint Builder</title>
+  <title>Co-op Builder — Rounds</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -22,59 +22,47 @@
       <div class="card">
         <div class="row"><span>Room:</span><strong id="roomLabel">—</strong></div>
         <div class="row"><span>Players:</span><strong id="pcount">0</strong></div>
+        <div class="row"><span>Ready:</span><strong id="readyCount">0</strong></div>
+        <div class="row"><span>Round:</span><strong id="roundInfo">—</strong></div>
       </div>
 
-      <div class="card">
-        <h2>Mode</h2>
-        <select id="mode">
-          <option value="memory">Memory (preview & peeks)</option>
-          <option value="silhouette">Silhouette (outline only)</option>
-          <option value="fog">Fog of War (cursor reveal)</option>
-        </select>
-
-        <div id="memCfg" class="cfg">
-          <div class="row"><span>Preview (s)</span><input id="memPreview" type="number" min="0" max="30" value="8"></div>
-          <div class="row"><span>Peeks</span><input id="memPeeks" type="number" min="0" max="10" value="3"></div>
-          <div class="row"><span>Peek length (s)</span><input id="memPeekDur" type="number" min="1" max="10" value="2"></div>
-          <div class="row"><span>Peeks left</span><strong id="peekLeft">—</strong></div>
-          <button id="peekBtn">Peek</button>
-        </div>
-
-        <div id="silCfg" class="cfg hidden">
-          <div class="row"><label><input id="silCounts" type="checkbox" checked> Show counts</label></div>
-          <div class="row small"><span>Windows:</span><strong id="winCount">0</strong> <span>Doors:</span><strong id="doorCount">0</strong></div>
-        </div>
-
-        <div id="fogCfg" class="cfg hidden">
-          <div class="row"><span>Reveal radius</span><input id="fogRad" type="number" min="1" max="8" value="3"></div>
-        </div>
-
-        <div class="row"><span>Blueprint opacity</span> <input id="bpAlpha" type="range" min="0" max="40" value="18"></div>
+      <div id="lobbyCard" class="card hidden">
+        <h2>Match</h2>
         <div class="row">
-          <button id="start">Start Round</button>
-          <button id="review">Review</button>
+          <label><input type="radio" name="mtype" value="competitive" checked> Competitive</label>
+          <label><input type="radio" name="mtype" value="team"> Team</label>
         </div>
-        <button id="nextRound">Next Blueprint</button>
+        <div class="row"><button id="readyBtn">Ready</button><button id="startBtn" disabled>Start Match</button></div>
+        <div id="hostHint" class="hint"></div>
+      </div>
+
+      <div id="buildCard" class="card hidden">
+        <div class="row"><span>Phase</span><strong id="phaseLbl">—</strong></div>
+        <div class="row"><span>Time</span><strong id="timeLbl">—</strong></div>
+        <div class="row" id="compBtns"><button id="submitBtn">Submit</button></div>
+        <div class="row hidden" id="teamBtns"><button id="peekBtn">Peek</button><span id="peekLeft"></span></div>
         <div id="status"></div>
       </div>
 
       <div class="card">
         <h2>Palette</h2>
         <div id="palette" class="palette"></div>
-        <p class="tip">Click to place. Right-click to erase. Keys 1–5 change tile.</p>
+        <p class="tip">Click = place. Right-click = erase. Keys 1–5 switch tiles.</p>
       </div>
     </aside>
 
     <main>
-      <canvas id="grid" width="800" height="720"></canvas>
+      <canvas id="grid" width="880" height="720"></canvas>
+
+      <div id="overlay" class="overlay hidden">
+        <div id="overlayText">Blueprint</div>
+        <div id="overlaySub"></div>
+      </div>
 
       <div id="scorePanel" class="modal hidden">
         <div class="panel">
-          <h3>Round Results</h3>
-          <p><b>Accuracy:</b> <span id="acc">0</span>%</p>
-          <p><b>Wrong tiles:</b> <span id="wrong">0</span></p>
-          <p><b>Final Score:</b> <span id="final">0</span>/100</p>
-          <p><b>Stars:</b> <span id="stars">★☆☆</span></p>
+          <h3 id="resultTitle">Round Results</h3>
+          <ul id="scoreList"></ul>
           <button id="closeScore">Close</button>
         </div>
       </div>
