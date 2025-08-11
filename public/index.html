@@ -1,17 +1,54 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <title>Hello Multiplayer</title>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="utf-8" />
+  <title>Co-op Blueprint Builder (Base)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <h1>Hello Multiplayer!</h1>
-  <div id="chat">
-    <input id="msg" placeholder="Type message..." />
-    <button id="send">Send</button>
-    <ul id="messages"></ul>
+  <div id="app">
+    <aside id="left">
+      <h1>Co-op Builder</h1>
+      <div class="card">
+        <button id="create">Create Room</button>
+        <div class="join">
+          <input id="code" placeholder="Room code (e.g., AB12CD)" />
+          <button id="join">Join</button>
+        </div>
+        <div class="row"><span>Room:</span><strong id="roomLabel">—</strong></div>
+        <div class="row"><span>Players:</span><strong id="pcount">0</strong></div>
+      </div>
+
+      <div class="card">
+        <h2>Palette</h2>
+        <div id="palette" class="palette"></div>
+      </div>
+
+      <div class="card">
+        <button id="review">Review</button>
+        <button id="nextRound">Next Blueprint</button>
+        <div id="status"></div>
+      </div>
+
+      <p class="tip">Tip: Click cells to place. Right-click to erase. Number keys 1-5 switch tiles.</p>
+    </aside>
+
+    <main>
+      <canvas id="grid" width="576" height="576"></canvas>
+      <div id="scorePanel" class="modal hidden">
+        <div class="panel">
+          <h3>Round Results</h3>
+          <p><b>Accuracy:</b> <span id="acc">0</span>%</p>
+          <p><b>Wrong tiles:</b> <span id="wrong">0</span></p>
+          <p><b>Final Score:</b> <span id="final">0</span>/100</p>
+          <p><b>Stars:</b> <span id="stars">★☆☆</span></p>
+          <button id="closeScore">Close</button>
+        </div>
+      </div>
+    </main>
   </div>
+
   <script src="/socket.io/socket.io.js"></script>
   <script src="script.js"></script>
 </body>
