@@ -14,10 +14,10 @@ const PHASE = { LOBBY:"lobby", COUNTDOWN:"countdown", PREVIEW:"preview", BUILD:"
 const TILES = { EMPTY:0, WALL:1, WINDOW:2, DOOR:3, ROOF:4 };
 const nanoid = customAlphabet("ABCDEFGHJKMNPQRSTUVWXYZ23456789", 6);
 
-// Timings (ms)
-const LOBBY_COUNTDOWN_MS = 2000;  // first "GET READY"
-const INTER_COUNTDOWN_MS = 1200;  // between rounds "GET READY"
-const RESULTS_MS         = 900;   // how long results show each round
+// Timings
+const LOBBY_COUNTDOWN_MS = 2000;  // first round Get Ready
+const INTER_COUNTDOWN_MS = 1200;  // between rounds Get Ready
+const RESULTS_MS         = 1000;  // time to read results every round
 
 const COMP_ROUNDS = [
   { gridW:20, gridH:18, previewSec:6,  buildSec:90,  editCap:400 },
@@ -60,6 +60,13 @@ function makeFacadeBlueprint(w,h){
   return g;
 }
 
+function boardsEqual(b, bp){
+  const h = bp.length, w = bp[0].length;
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+    if((b[y][x]||0)!==bp[y][x]) return false;
+  }
+  return true;
+}
 function scoreAccuracy(board, bp){
   let total=0, match=0, wrong=0;
   for(let y=0;y<bp.length;y++) for(let x=0;x<bp[0].length;x++){
@@ -72,6 +79,7 @@ function scoreAccuracy(board, bp){
   return { accuracy, wrong };
 }
 
+// token bucket for placeTile
 function allowPlace(socket, cost=1, rate=10, burst=18){
   const now = Date.now();
   const key = "rate";
@@ -83,7 +91,8 @@ function allowPlace(socket, cost=1, rate=10, burst=18){
   return false;
 }
 
-// Room state
+// Rooms
+const PH = PHASE;
 const rooms = {};
 function newRoom(){
   const code = nanoid();
@@ -95,7 +104,7 @@ function newRoom(){
     ready: new Set(),
     matchType: "competitive",
 
-    phase: PHASE.LOBBY,
+    phase: PH.LOBBY,
     totalRounds: 3,
     roundNum: 0,
 
@@ -125,24 +134,31 @@ function newRoom(){
 
 function canStart(r){
   const n = r.players.size;
-  if(r.phase!==PHASE.LOBBY) return false;
-  return n>=2 && r.ready.size===n;
-}
-function clearTimers(r){
-  for(const k of ["countdown","preview","build","results"]){
-    if(r.timers[k]){ clearTimeout(r.timers[k]); r.timers[k]=null; }
-  }
+  if(r.phase!==PH.LOBBY) return false;
+  const allReady = r.ready.size===n && n>=2;
+  return allReady && n>=2;
 }
 function broadcastLobby(r){
   io.to(r.code).emit("lobby", {
-    code:r.code, hostId:r.hostId, matchType:r.matchType,
-    players:Array.from(r.players), readyCount:r.ready.size,
-    canStart:canStart(r), phase:r.phase, roundNum:r.roundNum, totalRounds:r.totalRounds
+    code: r.code,
+    hostId: r.hostId,
+    matchType: r.matchType,
+    players: Array.from(r.players),
+    readyCount: r.ready.size,
+    canStart: canStart(r),
+    phase: r.phase,
+    roundNum: r.roundNum,
+    totalRounds: r.totalRounds
   });
+}
+function clearTimers(r){
+  for(const k of ["countdown","preview","build","results"]){
+    if(r.timers[k]) { clearTimeout(r.timers[k]); r.timers[k]=null; }
+  }
 }
 function abortToLobby(r){
   clearTimers(r);
-  r.phase = PHASE.LOBBY;
+  r.phase = PH.LOBBY;
   r.roundNum = 0;
   r.ready.clear();
   r.blueprint = null;
@@ -154,7 +170,18 @@ function abortToLobby(r){
   broadcastLobby(r);
 }
 
-// Lifecycle helpers
+function sendRoundSetup(r){
+  for(const id of r.players){
+    const sock = io.sockets.sockets.get(id);
+    if(!sock) continue;
+    if(r.matchType==="competitive"){
+      sock.emit("roundSetup", { gridW:r.gridW, gridH:r.gridH, blueprint:r.blueprint, board:r.boardsByPlayer[id], matchType:r.matchType, roundNum:r.roundNum, totalRounds:r.totalRounds });
+    } else {
+      sock.emit("roundSetup", { gridW:r.gridW, gridH:r.gridH, blueprint:r.blueprint, board:r.teamBoard, matchType:r.matchType, roundNum:r.roundNum, totalRounds:r.totalRounds, peeksRemaining:r.peeksRemaining });
+    }
+  }
+}
+
 function setupRound(r){
   r.roundNum += 1;
   r.submitted.clear();
@@ -176,36 +203,25 @@ function setupRound(r){
     r.peekUntil = 0;
   }
 }
-function sendRoundSetup(r){
-  for(const id of r.players){
-    const sock = io.sockets.sockets.get(id);
-    if(!sock) continue;
-    if(r.matchType==="competitive"){
-      sock.emit("roundSetup", { gridW:r.gridW, gridH:r.gridH, blueprint:r.blueprint, board:r.boardsByPlayer[id], matchType:r.matchType, roundNum:r.roundNum, totalRounds:r.totalRounds });
-    } else {
-      sock.emit("roundSetup", { gridW:r.gridW, gridH:r.gridH, blueprint:r.blueprint, board:r.teamBoard, matchType:r.matchType, roundNum:r.roundNum, totalRounds:r.totalRounds, peeksRemaining:r.peeksRemaining });
-    }
-  }
-}
 
 function beginCountdown(r, ms){
-  r.phase = PHASE.COUNTDOWN;
+  r.phase = PH.COUNTDOWN;
   r.countdownEndsAt = Date.now() + ms;
-  io.to(r.code).emit("phase", { phase:r.phase, roundNum:r.roundNum, totalRounds:r.totalRounds, countdownEndsAt:r.countdownEndsAt, countdownSec:Math.round(ms/1000), matchType:r.matchType });
+  io.to(r.code).emit("phase", { phase:r.phase, roundNum:r.roundNum, totalRounds:r.totalRounds, countdownEndsAt:r.countdownEndsAt, matchType:r.matchType });
   r.timers.countdown = setTimeout(()=> beginPreview(r), ms);
 }
 function beginPreview(r){
-  r.phase = PHASE.PREVIEW;
+  r.phase = PH.PREVIEW;
   const sec = (r.matchType==="competitive" ? (COMP_ROUNDS[r.roundNum-1]?.previewSec || 4) : TEAM_ROUND.previewSec);
   r.previewEndsAt = Date.now() + sec*1000;
-  io.to(r.code).emit("phase", { phase:r.phase, roundNum:r.roundNum, totalRounds:r.totalRounds, previewEndsAt:r.previewEndsAt, previewSec:sec, matchType:r.matchType, peeksRemaining:r.peeksRemaining||0 });
+  io.to(r.code).emit("phase", { phase:r.phase, roundNum:r.roundNum, totalRounds:r.totalRounds, previewEndsAt:r.previewEndsAt, matchType:r.matchType, peeksRemaining:r.peeksRemaining||0 });
   r.timers.preview = setTimeout(()=> beginBuild(r), sec*1000);
 }
 function beginBuild(r){
-  r.phase = PHASE.BUILD;
+  r.phase = PH.BUILD;
   const sec = (r.matchType==="competitive" ? (COMP_ROUNDS[r.roundNum-1]?.buildSec || 90) : TEAM_ROUND.buildSec);
   r.buildEndsAt = Date.now() + sec*1000;
-  io.to(r.code).emit("phase", { phase:r.phase, roundNum:r.roundNum, totalRounds:r.totalRounds, buildEndsAt:r.buildEndsAt, buildSec:sec, matchType:r.matchType, peeksRemaining:r.peeksRemaining||0 });
+  io.to(r.code).emit("phase", { phase:r.phase, roundNum:r.roundNum, totalRounds:r.totalRounds, buildEndsAt:r.buildEndsAt, matchType:r.matchType, peeksRemaining:r.peeksRemaining||0 });
   io.to(r.code).emit("submitState",{ count:r.submitted.size, total:r.players.size });
   r.timers.build = setTimeout(()=> finishRound(r), sec*1000);
 }
@@ -245,31 +261,28 @@ function computeResults(r){
 
 function finishRound(r){
   clearTimers(r);
-  r.phase = PHASE.RESULTS;
+  r.phase = PH.RESULTS;
 
-  // Always show results
+  // Always show results, no matter how the round ended
   const results = computeResults(r);
   io.to(r.code).emit("roundResults", results);
 
   if(r.roundNum < r.totalRounds){
     r.timers.results = setTimeout(()=>{
       setupRound(r);
-      sendRoundSetup(r);
+      sendRoundSetup(r);              // so clients can size during Get Ready
       beginCountdown(r, INTER_COUNTDOWN_MS);
     }, RESULTS_MS);
   } else {
-    // FINAL: wait a beat so players can read results, THEN summary
-    setTimeout(()=>{
-      const summary = [];
-      for(const id of r.players){ summary.push({ id, total:r.points[id]||0 }); }
-      summary.sort((a,b)=> b.total-a.total);
-      io.to(r.code).emit("matchSummary", { entries: summary });
-      abortToLobby(r);
-    }, RESULTS_MS);
+    const summary = [];
+    for(const id of r.players){ summary.push({ id, total:r.points[id]||0 }); }
+    summary.sort((a,b)=> b.total-a.total);
+    io.to(r.code).emit("matchSummary", { entries: summary });
+    abortToLobby(r);
   }
 }
 
-// Sockets
+// --- Socket handlers ---
 io.on("connection",(socket)=>{
   let joined = null;
 
@@ -287,16 +300,16 @@ io.on("connection",(socket)=>{
     const r = rooms[code];
     if(!r) return cb?.({ ok:false, error:"Room not found." });
     socket.join(code); joined=code;
-    if(r.phase!==PHASE.LOBBY){ r.spectators.add(socket.id); }
+    if(r.phase!==PH.LOBBY){ r.spectators.add(socket.id); }
     else { r.players.add(socket.id); }
-    cb?.({ ok:true, code, selfId:socket.id, hostId:r.hostId, matchType:r.matchType, phase:r.phase, roundNum:r.roundNum, totalRounds:r.totalRounds, spectator: r.phase!==PHASE.LOBBY });
+    cb?.({ ok:true, code, selfId:socket.id, hostId:r.hostId, matchType:r.matchType, phase:r.phase, roundNum:r.roundNum, totalRounds:r.totalRounds, spectator: r.phase!==PH.LOBBY });
     broadcastLobby(r);
   });
 
   socket.on("setMatchType",({code, matchType})=>{
     const r = rooms[code]; if(!r) return;
     if(socket.id!==r.hostId) return;
-    if(r.phase!==PHASE.LOBBY) return;
+    if(r.phase!==PH.LOBBY) return;
     if(matchType!=="competitive" && matchType!=="team") return;
     r.matchType = matchType;
     io.to(r.code).emit("modeUpdate",{ matchType:r.matchType });
@@ -324,7 +337,7 @@ io.on("connection",(socket)=>{
   socket.on("peek",({code})=>{
     const r = rooms[code]; if(!r) return;
     if(r.matchType!=="team") return;
-    if(r.phase!==PHASE.BUILD) return;
+    if(r.phase!==PH.BUILD) return;
     if(r.peeksRemaining<=0) return;
     r.peeksRemaining--;
     r.peekUntil = Date.now() + TEAM_ROUND.peekDurSec*1000;
@@ -333,7 +346,7 @@ io.on("connection",(socket)=>{
 
   socket.on("placeTile",({code,x,y,tile})=>{
     const r = rooms[code]; if(!r) return;
-    if(r.phase!==PHASE.BUILD) return;
+    if(r.phase!==PH.BUILD) return;
     if(!allowPlace(socket)) return;
 
     x = clamp(x|0, 0, (r.gridW||1)-1);
@@ -349,14 +362,10 @@ io.on("connection",(socket)=>{
       b[y][x] = tile; r.edits[socket.id] = (r.edits[socket.id]||0)+1;
       io.to(r.code).emit("gridUpdate",{ owner:socket.id, x,y,tile });
 
-      if(!r.finished.find(f=>f.id===socket.id)){
-        // optional speed-finish rank on perfect match
-        const equal = scoreAccuracy(b, r.blueprint).wrong===0 && scoreAccuracy(b, r.blueprint).accuracy===100;
-        if(equal){
-          const rank = r.finished.length + 1;
-          r.finished.push({ id:socket.id, rank, finishedAt:Date.now() });
-          io.to(r.code).emit("playerFinished",{ id:socket.id, rank });
-        }
+      if(!r.finished.find(f=>f.id===socket.id) && boardsEqual(b, r.blueprint)){
+        const rank = r.finished.length + 1;
+        r.finished.push({ id:socket.id, rank, finishedAt:Date.now() });
+        io.to(r.code).emit("playerFinished",{ id:socket.id, rank });
       }
     } else {
       r.teamBoard[y][x] = tile;
@@ -364,10 +373,10 @@ io.on("connection",(socket)=>{
     }
   });
 
-  // Submit ⇄ Unsubmit for BOTH modes
+  // Submit ⇄ Unsubmit in BOTH modes; when everyone submits, end now (but still show results)
   socket.on("submitToggle",({code, submit})=>{
     const r = rooms[code]; if(!r) return;
-    if(r.phase!==PHASE.BUILD) return;
+    if(r.phase!==PH.BUILD) return;
     if(!r.players.has(socket.id)) return;
 
     if(submit){ r.submitted.add(socket.id); } else { r.submitted.delete(socket.id); }
@@ -389,7 +398,7 @@ io.on("connection",(socket)=>{
     r.submitted.delete(leftId);
     if(r.hostId===leftId){ r.hostId = Array.from(r.players)[0] || null; }
 
-    if(r.phase!==PHASE.LOBBY){
+    if(r.phase!==PH.LOBBY){
       io.to(r.code).emit("opponentLeft",{ id:leftId });
       if(r.players.size < 2){
         abortToLobby(r);

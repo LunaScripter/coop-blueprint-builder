@@ -1,4 +1,4 @@
-// --- Client: timer clamp + stable flow ---
+// --- Constants & State ---
 const socket = io();
 const TILES = { EMPTY:0, WALL:1, WINDOW:2, DOOR:3, ROOF:4 };
 const TILE_NAMES = ["Empty","Wall","Window","Door","Roof"];
@@ -19,10 +19,7 @@ let peekUntil=0, peeksRemaining=0;
 let mySubmitted=false, submittedCount=0, submittedTotal=0;
 let currentTile=TILES.WALL;
 
-// phase duration caps (server-provided)
-const limits = { countdown:0, preview:0, build:0 };
-
-// Elements
+// --- Elements ---
 const phaseOverlay = document.getElementById('phaseOverlay');
 const overlayText = document.getElementById('overlayText');
 const overlaySub = document.getElementById('overlaySub');
@@ -63,10 +60,10 @@ const createBtn = document.getElementById('createBtn');
 const joinBtn = document.getElementById('joinBtn');
 const codeInput = document.getElementById('codeInput');
 
-// Utils
+// --- Utils ---
 const computeCell = (w,h)=> Math.floor(Math.min(880/w, 720/h, 40));
-const show = (el)=> el.classList.remove('hidden');
-const hide = (el)=> el.classList.add('hidden');
+function setHidden(el, hidden){ el.classList.toggle('hidden', !!hidden); }
+function show(el){ setHidden(el, false); } function hide(el){ setHidden(el, true); }
 
 function showFullOverlay(title, sub=""){
   overlayText.textContent = title;
@@ -76,11 +73,13 @@ function showFullOverlay(title, sub=""){
 function hideFullOverlay(){
   phaseOverlay.classList.remove('show'); phaseOverlay.classList.add('hidden');
 }
+
 function setBoardVisible(on){
-  (on?show:hide)(boardWrap);
-  (on?show:hide)(topHUD);
-  (on?show:hide)(bottomBar);
+  setHidden(boardWrap, !on);
+  setHidden(topHUD, !on);
+  setHidden(bottomBar, !on);
 }
+
 function resizeBoard(){
   if(!gridW || !gridH) return;
   cell = computeCell(gridW, gridH);
@@ -112,13 +111,14 @@ function drawBoard(){
   }
   for(let y=0;y<gridH;y++) for(let x=0;x<gridW;x++){
     const t=board[y][x]; if(t===TILES.EMPTY) continue;
-    ctx.fillStyle=(t===TILES.WALL?COLORS.wall:t===TILES.WINDOW?COLORS.window:t===TILES.DOOR?COLORS.door:COLORS.roof);
+    ctx.fillStyle=(t===TILES.WALL?COLORS.wall:t===TILES.WINDOW?COLORS.window:t===TILES.DOOR?COLORS.door:t===TILES.ROOF?COLORS.roof:COLORS.cell);
     ctx.fillRect(x*cell+4,y*cell+4,cell-8,cell-8);
   }
   ctx.strokeStyle=COLORS.grid;
   for(let x=0;x<=gridW;x++){ ctx.beginPath(); ctx.moveTo(x*cell,0); ctx.lineTo(x*cell,gridH*cell); ctx.stroke(); }
   for(let y=0;y<=gridH;y++){ ctx.beginPath(); ctx.moveTo(0,y*cell); ctx.lineTo(gridW*cell,y*cell); ctx.stroke(); }
 }
+
 function drawPreview(){
   if(!blueprint) return;
   const px = cell;
@@ -137,7 +137,7 @@ function drawPreview(){
   for(let y=0;y<=gridH;y++){ pctx.beginPath(); pctx.moveTo(0,y*px); pctx.lineTo(gridW*px,y*px); pctx.stroke(); }
 }
 
-// Phase helpers
+// --- Phase helpers ---
 function enterCountdown(){
   phase = PHASE.COUNTDOWN;
   show(boardWrap); hide(bottomBar); hide(topHUD);
@@ -159,30 +159,26 @@ function enterBuild(){
   hide(previewCanvas); hide(bpLabel); hide(bpTimer);
 }
 
-// Timer rendering (floor + clamp to server-provided limits)
-let hudInt = null;
 function updateHUD(){
   const now = Date.now();
-  let ms=0, cap=0;
-
-  if(phase===PHASE.COUNTDOWN){ ms = countdownEndsAt - now; cap = limits.countdown; }
-  if(phase===PHASE.PREVIEW){   ms = previewEndsAt   - now; cap = limits.preview; }
-  if(phase===PHASE.BUILD){     ms = buildEndsAt     - now; cap = limits.build; }
-
-  let s = Math.max(0, Math.floor((ms + 50)/1000)); // floor, small +50ms smoothing
-  if(cap) s = Math.min(s, cap);                    // clamp so we never show 91
-
-  if(phase===PHASE.BUILD) timerLabel.textContent = `${s}s`; else timerLabel.textContent = "—s";
+  let ms = 0;
+  if(phase===PHASE.COUNTDOWN) ms = countdownEndsAt - now;
+  if(phase===PHASE.PREVIEW)   ms = previewEndsAt   - now;
+  if(phase===PHASE.BUILD)     ms = buildEndsAt     - now;
+  const s = Math.max(0, Math.ceil(ms/1000));
+  timerLabel.textContent = (phase===PHASE.BUILD) ? `${s}s` : "—s";
   roundLabel.textContent = (roundNum? `Round ${roundNum}/${totalRounds}` : "Round —");
   if(phase===PHASE.COUNTDOWN) overlaySub.textContent = `Starting in ${s}s`;
   if(phase===PHASE.PREVIEW)   bpTimer.textContent   = `Preview: ${s}s`;
 }
+
+let hudInt = null;
 function startHudTimer(){
   if(hudInt) clearInterval(hudInt);
   hudInt = setInterval(()=>{ updateHUD(); drawBoard(); }, 200);
 }
 
-// Palette & input
+// --- Palette & input ---
 function buildPalette(){
   paletteBar.innerHTML = "";
   [TILES.EMPTY,TILES.WALL,TILES.WINDOW,TILES.DOOR,TILES.ROOF].forEach(t=>{
@@ -267,20 +263,23 @@ socket.on('lobby',(st)=>{
 
   show(lobbyOverlay); hide(welcomeOverlay);
   setBoardVisible(false);
-  scorePanel.classList.remove('show');
+  hide(scorePanel);
 
   submittedTotal = st.players.length;
   submittedCount = 0; mySubmitted=false;
   submitStatus.textContent = "";
 });
+
 socket.on('modeUpdate',({matchType:mt})=>{
   matchType = mt; updateModeRadios();
 });
+
 socket.on('roundSetup',({gridW:W,gridH:H,blueprint:bp,board:b,matchType:mt,roundNum:rn,totalRounds:tr,peeksRemaining:pr})=>{
   matchType=mt; gridW=W; gridH=H; blueprint=bp; board=b; roundNum=rn; totalRounds=tr;
   peeksRemaining=pr||0; peekLeft.textContent=`x${peeksRemaining}`;
   mySubmitted=false; submittedCount=0;
 
+  // Submit visible in BOTH modes
   submitBtn.classList.remove('hidden');
   peekBtn.classList.toggle('hidden', matchType!=="team");
 
@@ -288,20 +287,15 @@ socket.on('roundSetup',({gridW:W,gridH:H,blueprint:bp,board:b,matchType:mt,round
   resizeBoard();
   setBoardVisible(true);
   hide(lobbyOverlay); hide(welcomeOverlay);
-  scorePanel.classList.remove('show');
+  hide(scorePanel);
   submitBtn.textContent = "Submit";
   submitStatus.textContent = "";
 });
+
 socket.on('phase',(ph)=>{
   if(ph.countdownEndsAt) countdownEndsAt=ph.countdownEndsAt;
   if(ph.previewEndsAt)   previewEndsAt=ph.previewEndsAt;
   if(ph.buildEndsAt)     buildEndsAt=ph.buildEndsAt;
-
-  // capture exact limits sent by server to prevent 91s
-  if(ph.countdownSec!=null) limits.countdown = ph.countdownSec;
-  if(ph.previewSec!=null)   limits.preview   = ph.previewSec;
-  if(ph.buildSec!=null)     limits.build     = ph.buildSec;
-
   const prev = phase;
   phase = ph.phase;
 
@@ -309,16 +303,20 @@ socket.on('phase',(ph)=>{
   if(phase===PHASE.PREVIEW)   enterPreview();
   if(phase===PHASE.BUILD)     enterBuild();
 
-  if(prev===PHASE.RESULTS && (phase!==PHASE.RESULTS)){
-    scorePanel.classList.remove('show');
+  // Auto-hide results modal as soon as next phase arrives
+  if(prev===PHASE.RESULTS && (phase===PHASE.COUNTDOWN || phase===PHASE.PREVIEW || phase===PHASE.BUILD)){
+    hide(scorePanel);
   }
+
   startHudTimer();
   resizeBoard();
 });
+
 socket.on('peekWindow',({until,peeksRemaining:pr})=>{
   peekUntil=until||0; peeksRemaining=pr||0; peekLeft.textContent=`x${peeksRemaining}`;
   drawBoard();
 });
+
 socket.on('gridUpdate',({owner,x,y,tile})=>{
   if(!board) return;
   if(matchType==="competitive" && owner!==selfId) return;
@@ -326,6 +324,7 @@ socket.on('gridUpdate',({owner,x,y,tile})=>{
     board[y][x]=tile; drawBoard();
   }
 });
+
 socket.on('submitState',({id, submitted, count, total})=>{
   if(total!=null) submittedTotal = total;
   if(count!=null) submittedCount = count;
@@ -334,7 +333,11 @@ socket.on('submitState',({id, submitted, count, total})=>{
   bottomBar.style.opacity = mySubmitted ? ".7" : "1";
   submitStatus.textContent = (phase===PHASE.BUILD) ? `Submitted: ${submittedCount}/${submittedTotal||"?"}` : "";
 });
-socket.on('opponentLeft',()=>{ alert("Opponent left. Match ended."); });
+
+socket.on('opponentLeft',({id})=>{
+  alert("Opponent left. Match ended.");
+});
+
 socket.on('roundResults',({roundNum:rn,entries})=>{
   scoreList.innerHTML="";
   resultTitle.textContent=`Round ${rn} Results`;
@@ -346,7 +349,8 @@ socket.on('roundResults',({roundNum:rn,entries})=>{
     li.innerHTML=`<span>${rank} ${e.id.slice(0,5)}${me}</span><span>${right}</span>`;
     scoreList.appendChild(li);
   });
-  scorePanel.classList.add('show');
+  // Always show results; server will move to Get Ready after a short delay
+  show(scorePanel);
 });
 socket.on('matchSummary',({entries})=>{
   scoreList.innerHTML="";
@@ -357,13 +361,13 @@ socket.on('matchSummary',({entries})=>{
     li.innerHTML=`<span>#${i+1} ${e.id.slice(0,5)}${me}</span><span>${e.total} pts</span>`;
     scoreList.appendChild(li);
   });
-  scorePanel.classList.add('show');
+  show(scorePanel);
 });
-closeScore.onclick = ()=> scorePanel.classList.remove('show');
+closeScore.onclick = ()=> hide(scorePanel);
 
-// Palette + init
+// Init
 function init(){
-  scorePanel.classList.remove('show');
+  hide(scorePanel);
   show(welcomeOverlay);
   hide(lobbyOverlay);
   setBoardVisible(false);
